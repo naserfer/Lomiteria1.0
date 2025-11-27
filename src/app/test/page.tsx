@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { supabase, testConnection } from '@/lib/supabase'
+import { supabase, testConnection } from '@/core/supabase'
 
 export default function TestPage() {
   const [connectionStatus, setConnectionStatus] = useState<any>(null)

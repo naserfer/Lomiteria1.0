@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { TenantProvider } from "@/contexts/TenantContext";
-import { AppFrame } from "@/components/layout/AppFrame";
+import { TenantProvider } from "@/features/auth/TenantContext";
+import { AppFrame } from "@/shared/components/layout/AppFrame";
 
 export const metadata: Metadata = {
   title: "Ka'u Manager - Plataforma POS para lomiterías",

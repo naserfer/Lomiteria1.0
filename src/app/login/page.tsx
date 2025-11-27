@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { useTenant } from '@/contexts/TenantContext'
+import { useTenant } from '@/features/auth/TenantContext'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')

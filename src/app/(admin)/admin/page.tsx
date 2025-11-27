@@ -18,12 +18,12 @@ import {
   Package,
   Percent
 } from 'lucide-react'
-import { supabase } from '@/lib/supabase'
-import { useTenant } from '@/contexts/TenantContext'
-import { formatGuaranies, formatNumber } from '@/lib/utils/format'
-import { KpiCard } from '@/components/admin/KpiCard'
-import { InventoryDrawer } from '@/components/admin/InventoryDrawer'
-import { getIngredientEstimationFromItems } from '@/lib/inventory/consumption'
+import { supabase } from '@/core/supabase'
+import { useTenant } from '@/features/auth/TenantContext'
+import { formatGuaranies, formatNumber } from '@/shared/utils/format'
+import { KpiCard } from '@/features/dashboard/components/KpiCard'
+import { InventoryDrawer } from '@/features/inventario/components/InventoryDrawer'
+import { getIngredientEstimationFromItems } from '@/features/inventario/consumption.service'
 
 interface PedidoRecord {
   id: string

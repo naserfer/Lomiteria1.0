@@ -4,7 +4,7 @@ import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ShoppingCart, BarChart3, Loader2 } from 'lucide-react'
-import { useTenant } from '@/contexts/TenantContext'
+import { useTenant } from '@/features/auth/TenantContext'
 
 export default function Home() {
   const router = useRouter()

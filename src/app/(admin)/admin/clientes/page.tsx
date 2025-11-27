@@ -1,10 +1,10 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useTenant } from '@/contexts/TenantContext'
-import { supabase } from '@/lib/supabase'
-import { getClientesPorTenant, crearCliente, buscarClientes, actualizarCliente } from '@/lib/db/clientes'
-import type { Cliente, NuevoCliente } from '@/types/supabase'
+import { useTenant } from '@/features/auth/TenantContext'
+import { supabase } from '@/core/supabase'
+import { getClientesPorTenant, crearCliente, buscarClientes, actualizarCliente } from '@/features/clientes/clientes.service'
+import type { Cliente, NuevoCliente } from '@/shared/types/supabase'
 import { UserPlus, Search, Edit2, Trash2, Check, X, Loader2 } from 'lucide-react'
 import Link from 'next/link'
 
