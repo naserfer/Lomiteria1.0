@@ -7,6 +7,18 @@ export const AUTH_ERRORS = {
   INVALID_EMAIL: 'Formato de correo electrónico inválido'
 }
 
+export const SIGNUP_ERRORS = {
+  EMPTY_NAME: 'El nombre es requerido',
+  EMPTY_BUSINESS: 'El nombre del negocio es requerido',
+  EMPTY_EMAIL: 'El correo electrónico es requerido',
+  INVALID_EMAIL: 'Formato de correo electrónico inválido',
+  EMPTY_PASSWORD: 'La contraseña es requerida',
+  SHORT_PASSWORD: 'La contraseña debe tener al menos 6 caracteres',
+  EMPTY_CONFIRM: 'Debes confirmar tu contraseña',
+  PASSWORDS_MISMATCH: 'Las contraseñas no coinciden',
+  GENERIC: 'Error al crear la cuenta',
+}
+
 export const DEV_CREDENTIALS = {
   email: 'admin@lomiteria-don-juan.com',
   password: 'Admin123!'
