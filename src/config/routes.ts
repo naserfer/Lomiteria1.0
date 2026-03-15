@@ -6,6 +6,8 @@ export const ROUTES = {
   // Rutas públicas (sin autenticación)
   PUBLIC: {
     LOGIN: '/',
+    SIGNUP: '/signup',
+    AUTH_CALLBACK: '/auth/callback',
   },
 
   // Rutas protegidas (requieren autenticación)
@@ -34,6 +36,8 @@ export const ROUTES = {
  */
 export const PUBLIC_ROUTES = [
   ROUTES.PUBLIC.LOGIN,
+  ROUTES.PUBLIC.SIGNUP,
+  ROUTES.PUBLIC.AUTH_CALLBACK,
 ] as const
 
 /**

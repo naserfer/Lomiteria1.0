@@ -1,11 +1,14 @@
 'use client'
 
+import Link from 'next/link'
 import { useAuth } from '../hooks/useAuth'
 import { LoginHeader } from '../components/LoginHeader'
 import { ErrorAlert } from '../components/ErrorAlert'
 import { LoginFields } from '../components/LoginFields'
 import { LoginButton } from '../components/LoginButton'
 import { DevCredentials } from '../components/DevCredentials'
+import { OAuthButtons } from '../components/OAuthButtons'
+import { ROUTES } from '@/config/routes'
 
 export default function LoginForm() {
   const {
@@ -32,6 +35,10 @@ export default function LoginForm() {
 
           {/* Sección derecha - Form */}
           <div className="p-8 md:p-12 flex flex-col justify-center">
+            <OAuthButtons />
+
+            <div className="my-5" />
+
             <form onSubmit={handleLogin} className="space-y-6">
               <ErrorAlert message={error} />
 
@@ -45,6 +52,13 @@ export default function LoginForm() {
 
               <LoginButton loading={loading} />
             </form>
+
+            <p className="mt-6 text-center text-sm text-gray-500">
+              ¿No tenés cuenta?{' '}
+              <Link href={ROUTES.PUBLIC.SIGNUP} className="text-orange-600 hover:text-orange-700 font-medium">
+                Creá una gratis
+              </Link>
+            </p>
 
             <DevCredentials />
           </div>
