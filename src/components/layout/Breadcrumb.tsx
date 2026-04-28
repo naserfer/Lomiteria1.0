@@ -3,6 +3,7 @@
 import type { ReactNode } from 'react'
 import { useEffect, useState } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { createClient } from '@/lib/supabase/client'
 import {
   ChevronRight,
   Home,
@@ -35,9 +36,26 @@ export function Breadcrumb() {
   const pathname = usePathname()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { darkMode, isAdmin } = useTenant()
+  const { darkMode, isAdmin, tenant } = useTenant()
   /** `path` o `href` exacto del botón pulsado (mientras Next navega) */
   const [navigatingTo, setNavigatingTo] = useState<string | null>(null)
+
+  // Mesa seleccionada en el POS (cargamos el número una sola vez por cambio de mesaId)
+  const mesaId = searchParams.get('mesaId')
+  const [mesaNumero, setMesaNumero] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (!mesaId || !tenant?.id) { setMesaNumero(null); return }
+    let cancelled = false
+    createClient()
+      .from('mesas')
+      .select('numero')
+      .eq('tenant_id', tenant.id)
+      .eq('id', mesaId)
+      .single()
+      .then(({ data }) => { if (!cancelled && data?.numero) setMesaNumero(data.numero) })
+    return () => { cancelled = true }
+  }, [mesaId, tenant?.id])
 
   const items: BreadcrumbItem[] = []
 
@@ -168,9 +186,17 @@ export function Breadcrumb() {
     } else if (pathname.startsWith('/home/pos')) {
       items.push({
         label: 'Punto de Venta',
+        // Con mesa activa, "Punto de Venta" vuelve al picker (sin mesaId)
         path: ROUTES.PROTECTED.POS,
         icon: <ShoppingCart className="w-4 h-4" />,
       })
+      if (mesaId) {
+        items.push({
+          label: mesaNumero !== null ? `Mesa #${mesaNumero}` : 'Mesa',
+          path: `${ROUTES.PROTECTED.POS}?mesaId=${mesaId}`,
+          icon: <Table2 className="w-4 h-4" />,
+        })
+      }
     } else if (pathname.startsWith('/home/mesas')) {
       items.push({
         label: 'Mesas',
