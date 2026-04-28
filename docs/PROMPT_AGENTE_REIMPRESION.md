@@ -33,18 +33,20 @@ REQUISITOS EN SUPABASE:
 - Si usás RPC bump_factura_reprint desde la app, ejecutá también 15_bump_factura_reprint_solicitud.sql para que encole en reprint_solicitud.
 
 CONTRATO DE IMPRESIÓN:
-- Cocina: mismo formato interno que ya usás (printerId desde printer_config, data con numeroPedido, items, etc. — ver INSTRUCCIONES_AGENTE_IMPRESION en el repo web).
+- Cocina: mismo formato interno que ya usás (printerId desde printer_config, data con numeroPedido, items, etc. — ver INSTRUCCIONES_AGENTE_IMPRESION en este repo).
 - Factura: mismo pipeline que al emitir factura la primera vez (timbrado, ítems, totales IVA).
 
 EMISIÓN INICIAL (listener de pedido FACT — NO es reprint_solicitud):
 - El POS hace INSERT del pedido con estado_pedido EDIT y luego UPDATE a FACT cuando ya están ítems + items_pedido_customizacion + factura (si aplica). Suscribite a pedidos con event INSERT+UPDATE (o '*'), y dispará emisión inicial en UPDATE cuando new.estado_pedido === 'FACT' y antes no lo estaba (evitar doble impresión).
-- Cuando un pedido pasa a FACT y existe factura para ese pedido_id (vista_factura_impresion / tabla facturas), además de cocina: imprimí la factura **DOS veces** (copia cliente + copia local/archivo). Mismo contenido o con leyenda opcional en cada copia.
+- Si el pedido tiene mesa_id: en emisión inicial imprimí SOLO cocina (factura diferida).
+- Si el pedido NO tiene mesa_id, existe factura para ese pedido_id (vista_factura_impresion / tabla facturas) y `ENABLE_INVOICE_PRINTING=true`, además de cocina: imprimí la factura **DOS veces** (copia cliente + copia local/archivo). Mismo contenido o con leyenda opcional en cada copia.
 - Si NO hay factura (ej. canje de puntos): solo cocina, **cero** facturas.
-- Reimpresión (reprint_solicitud) NO debe duplicar: ahí va **una** factura por INSERT.
+- Reimpresión (reprint_solicitud) NO debe duplicar: ahí va **una** factura por INSERT (incluye cierre de cuenta de mesa).
 
 RESUMEN:
 Sin manejar ambos tipos en el listener de reprint_solicitud, la reimpresión desde la app no imprimirá lo esperado.
-Especificación detallada emisión 2 copias: docs/AGENTE_FACTURA_EMISION_DOS_COPIAS.md en el repo web.
+Especificación detallada emisión 2 copias: docs/AGENTE_FACTURA_EMISION_DOS_COPIAS.md en este repo.
+Contrato mesas: docs/CONTRATO_MESAS_IMPRESION_OPERATIVO.md en este repo.
 ```
 
 ---

@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import { LayoutDashboard, FileText, Loader2, ShoppingCart, Search, Gift, Printer, QrCode, X, ExternalLink, Copy, Check, Table2 } from 'lucide-react'
+import { LayoutDashboard, FileText, Loader2, ShoppingCart, Search, Gift, Printer, QrCode, X, ExternalLink, Copy, Check, Table2, CheckCircle2 } from 'lucide-react'
 import { useCartStore } from '@/store/cartStore'
 import { useTenant } from '@/contexts/TenantContext'
 import { createClient } from '@/lib/supabase/client'
@@ -29,6 +29,7 @@ import { CART_SECTION_ID, POS_PRODUCTS_SECTION_ID } from '../components/ScrollTo
 import CanjePuntosModal from '../components/CanjePuntosModal'
 import { ReprintPOSModal } from '../components/ReprintPOSModal'
 import { AppFooter } from '@/components/layout/AppFooter'
+import { cerrarCuentaMesaService } from '@/features/mesas/services/cerrarCuentaMesaService'
 
 export default function POSView() {
   const searchParams = useSearchParams()
@@ -44,9 +45,10 @@ export default function POSView() {
   const [isCartaQrModalOpen, setIsCartaQrModalOpen] = useState(false)
   const [cartaQrCopied, setCartaQrCopied] = useState(false)
   const [mesaLabel, setMesaLabel] = useState<string | null>(null)
+  const [isClosingMesaAccount, setIsClosingMesaAccount] = useState(false)
 
   const { usuario, tenant, loading: tenantLoading, darkMode, isAdmin, isCajero } = useTenant()
-  const { items, addItem, addComboItem, tipo, setTipo } = useCartStore()
+  const { items, addItem, addComboItem, tipo, setTipo, clearCart } = useCartStore()
   const { sesionAbierta, loading: loadingCaja } = useEstadoCaja(tenant?.id ?? null)
   const { categorias, productos, loading, feedback: dataFeedback } = usePOSData()
   const mesaId = searchParams.get('mesaId')
@@ -222,17 +224,62 @@ export default function POSView() {
       return
     }
 
-    // Feature flag apagado: confirmar directo sin abrir modal
-    if (!FEATURES.POS_FACTURA_MODAL) {
+    // En mesa: confirmar directo sin factura (cuenta se cierra después).
+    if (mesaId || !FEATURES.POS_FACTURA_MODAL) {
       const direct = await confirmOrderNoFactura()
-      if (direct) setFeedback(direct)
+      if (direct && (!mesaId || direct.type !== 'success')) setFeedback(direct)
     }
   }
 
   const onFacturaModalConfirm = async (facturaALNombreDelCliente: boolean, comprobanteNombreYCI: boolean) => {
     const result = await confirmOrderWithFacturaChoice(facturaALNombreDelCliente, comprobanteNombreYCI)
     if (result) {
-      setFeedback(result)
+      if (!mesaId || result.type !== 'success') setFeedback(result)
+    }
+  }
+
+  const handleCerrarCuentaMesa = async () => {
+    if (!tenant?.id || !mesaId) return
+    if (isClosingMesaAccount) return
+
+    setIsClosingMesaAccount(true)
+    try {
+      const result = await cerrarCuentaMesaService.cerrarCuenta({
+        tenantId: tenant.id,
+        mesaId,
+        usuarioId: usuario?.id ?? null,
+      })
+
+      clearCart()
+      setFeedback({
+        type: 'success',
+        title: `Mesa cerrada · Pedido #${result.numeroPedido}`,
+        message: result.warning
+          ? `Cuenta cerrada y mesa liberada. ${result.warning}`
+          : result.facturaEmitidaAhora
+            ? 'Cuenta cerrada, factura emitida y mesa liberada.'
+            : 'Cuenta cerrada, factura reimpresa y mesa liberada.',
+        details: [
+          { label: 'Mesa', value: mesaLabel ?? 'Mesa seleccionada' },
+          { label: 'Impresión', value: result.warning ? 'Pendiente o parcial' : 'Factura + ticket de puntos (agente)' },
+        ],
+      })
+      // Solo redirigir automático cuando todo salió bien; si hay warning/error,
+      // dejamos al usuario leer el mensaje con calma.
+      if (!result.warning) {
+        setTimeout(() => {
+          window.location.href = ROUTES.PROTECTED.MESAS
+        }, 900)
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'No se pudo cerrar la cuenta de la mesa.'
+      setFeedback({
+        type: 'error',
+        title: 'No se pudo cerrar la cuenta',
+        message,
+      })
+    } finally {
+      setIsClosingMesaAccount(false)
     }
   }
 
@@ -358,6 +405,30 @@ export default function POSView() {
                       <Printer className="h-4 w-4 sm:h-4 sm:w-4" />
                       <span className="hidden sm:inline">Reimprimir</span>
                     </button>
+                    {mesaId && (
+                      <button
+                        type="button"
+                        onClick={handleCerrarCuentaMesa}
+                        title="Cerrar cuenta de esta mesa"
+                        disabled={isClosingMesaAccount}
+                        className={`inline-flex items-center justify-center rounded-lg border p-2 sm:rounded-xl sm:gap-2 sm:px-3 sm:py-2 sm:text-sm sm:font-medium transition min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 ${
+                          isClosingMesaAccount
+                            ? 'opacity-60 cursor-not-allowed'
+                            : ''
+                        } ${
+                          darkMode
+                            ? 'border-emerald-500/40 text-emerald-300 hover:bg-emerald-700/20 hover:text-emerald-200'
+                            : 'border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:border-emerald-300'
+                        }`}
+                      >
+                        {isClosingMesaAccount ? (
+                          <Loader2 className="h-4 w-4 animate-spin sm:h-4 sm:w-4" />
+                        ) : (
+                          <CheckCircle2 className="h-4 w-4 sm:h-4 sm:w-4" />
+                        )}
+                        <span className="hidden sm:inline">Cerrar cuenta</span>
+                      </button>
+                    )}
                     <Link
                       href={ROUTES.PROTECTED.MESAS}
                       onClick={() => setNavigatingTo(ROUTES.PROTECTED.MESAS)}

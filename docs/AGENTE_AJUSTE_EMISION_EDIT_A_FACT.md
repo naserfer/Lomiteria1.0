@@ -107,7 +107,7 @@ Si todavía tenés un handler de `INSERT` en `pedidos` que buscaba `estado_pedid
 
 ---
 
-## 6. Documentos relacionados en este repo web
+## 6. Documentos relacionados en este repo
 
 | Documento | Contenido |
 |-----------|-----------|

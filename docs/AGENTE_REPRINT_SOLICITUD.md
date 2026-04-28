@@ -8,6 +8,14 @@ La app ya **no** hace `UPDATE pedidos.updated_at` para “Reimprimir cocina”, 
 
 En su lugar inserta filas en **`public.reprint_solicitud`** (`tipo` = `'cocina'` | `'factura'`). El agente debe reaccionar a **INSERT** en esa tabla y respetar el tipo.
 
+## Regla de Mesas
+
+- Pedido con `mesa_id` al confirmar (`EDIT -> FACT`): solo cocina, sin factura.
+- Factura de mesa se imprime al cerrar cuenta mediante `reprint_solicitud.tipo='factura'`.
+- Cada cierre de cuenta de mesa imprime 1 factura por `INSERT`.
+
+Contrato unificado: [`CONTRATO_MESAS_IMPRESION_OPERATIVO.md`](CONTRATO_MESAS_IMPRESION_OPERATIVO.md).
+
 ## Qué hacer en el agente (listener Supabase)
 
 1. Suscribirse a `postgres_changes` con `event: 'INSERT'`, `schema: 'public'`, `table: 'reprint_solicitud'`, filtrando por `tenant_id` como ya hacés con pedidos.
@@ -16,6 +24,11 @@ En su lugar inserta filas en **`public.reprint_solicitud`** (`tipo` = `'cocina'`
    - **`tipo === 'factura'`** → **solo** factura (p. ej. `vista_factura_impresion` por `pedido_id`). No ticket de cocina.
 
 3. Deduplicación: podés usar `reprint_solicitud.id` (siempre nuevo) o `id + created_at`.
+
+Llave recomendada por canal:
+
+- `pedidos` (emisión inicial): `pedido_id + transicion_a_FACT`.
+- `reprint_solicitud` (reimpresión): `reprint_solicitud.id`.
 
 ## SQL en Supabase
 

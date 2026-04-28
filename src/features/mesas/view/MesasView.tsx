@@ -10,6 +10,7 @@ import {
 import { useTenant } from '@/contexts/TenantContext'
 import { ROUTES } from '@/config/routes'
 import { mesasService } from '../services/mesasService'
+import { cerrarCuentaMesaService } from '../services/cerrarCuentaMesaService'
 import type { EstadoMesa, Mesa, MesaReserva } from '../types/mesas.types'
 
 // ─── Estilos por estado ────────────────────────────────────────────────────────
@@ -62,6 +63,7 @@ export default function MesasView() {
   const [splittingMesaId,   setSplittingMesaId]   = useState<string | null>(null)
   const [deletingReservaId, setDeletingReservaId] = useState<string | null>(null)
   const [cancelandoReservaId, setCancelandoReservaId] = useState<string | null>(null)
+  const [closingCuentaMesaId, setClosingCuentaMesaId] = useState<string | null>(null)
 
   // ── Confirmaciones inline ──
   const [confirmDividirMesaId,  setConfirmDividirMesaId]  = useState<string | null>(null)
@@ -136,12 +138,12 @@ export default function MesasView() {
 
   const setMesaFeedback = useCallback((mesaId: string, type: 'success' | 'error', message: string) => {
     setMesaFeedbackById(prev => ({ ...prev, [mesaId]: { type, message } }))
-    // Auto-limpiar después de 3.5s
+    // Auto-limpiar después de 10s para dar tiempo a leer alertas importantes.
     setTimeout(() => setMesaFeedbackById(prev => {
       const next = { ...prev }
       delete next[mesaId]
       return next
-    }), 3500)
+    }), 10000)
   }, [])
 
   // IDs de mesas que pertenecen a una unión activa
@@ -360,6 +362,36 @@ export default function MesasView() {
     }
   }, [tenant?.id, splitPartsByMesa, usuario?.id, loadData, setMesaFeedback])
 
+  const handleCerrarCuentaMesa = useCallback(async (mesa: Mesa) => {
+    if (!tenant?.id) return
+    setClosingCuentaMesaId(mesa.id)
+    setGlobalError(null)
+    try {
+      const result = await cerrarCuentaMesaService.cerrarCuenta({
+        tenantId: tenant.id,
+        mesaId: mesa.id,
+        usuarioId: usuario?.id ?? null,
+      })
+      const accion = result.warning
+        ? 'pendiente/parcial'
+        : result.facturaEmitidaAhora
+          ? 'emitida e impresa'
+          : 'reimpresa'
+      setMesaFeedback(
+        mesa.id,
+        result.warning ? 'error' : 'success',
+        result.warning
+          ? `Mesa liberada (pedido #${result.numeroPedido}). Atención: ${result.warning}`
+          : `Cuenta cerrada (pedido #${result.numeroPedido}). Factura ${accion}; mesa liberada.`
+      )
+      await loadData()
+    } catch (e: any) {
+      setMesaFeedback(mesa.id, 'error', e?.message ?? 'No se pudo cerrar la cuenta de la mesa.')
+    } finally {
+      setClosingCuentaMesaId(null)
+    }
+  }, [tenant?.id, usuario?.id, loadData, setMesaFeedback])
+
   const handleStartEdit = (mesa: Mesa) => {
     setConfirmDeleteMesaId(null)
     setEditingMesaId(mesa.id)
@@ -521,6 +553,7 @@ export default function MesasView() {
                 const enUnion       = mesasEnUnion.has(mesa.id)
                 const feedback      = mesaFeedbackById[mesa.id]
                 const isSaving      = savingId === mesa.id
+                const isClosingMesa = closingCuentaMesaId === mesa.id
                 const isSplitting   = splittingMesaId === mesa.id
                 const partes        = splitPartsByMesa[mesa.id] ?? 2
                 const confirmDiv    = confirmDividirMesaId === mesa.id
@@ -693,7 +726,20 @@ export default function MesasView() {
                             </div>
                           )}
                           {mesa.estado === 'ocupada' && (
-                            <div className="grid grid-cols-2 gap-2">
+                            <div className="grid grid-cols-3 gap-2">
+                              <button
+                                type="button"
+                                disabled={isSaving || isClosingMesa}
+                                onClick={() => void handleCerrarCuentaMesa(mesa)}
+                                className="rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-700 px-3 py-2 text-xs font-semibold hover:bg-emerald-100 transition dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-300 dark:hover:bg-emerald-900/40 disabled:opacity-50"
+                              >
+                                {isClosingMesa ? (
+                                  <Loader2 className="w-3.5 h-3.5 inline mr-1 animate-spin" />
+                                ) : (
+                                  <CheckCircle2 className="w-3.5 h-3.5 inline mr-1" />
+                                )}
+                                Cerrar cuenta
+                              </button>
                               <button type="button" disabled={isSaving} onClick={() => setEstado(mesa.id, 'libre')} className={BTN_LIBERAR}>
                                 <CheckCircle2 className="w-3.5 h-3.5 inline mr-1" />Liberar
                               </button>
@@ -971,7 +1017,7 @@ export default function MesasView() {
                           </span>
                         </p>
                         {reserva.notas && (
-                          <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5 italic">"{reserva.notas}"</p>
+                          <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5 italic">&quot;{reserva.notas}&quot;</p>
                         )}
                       </div>
 

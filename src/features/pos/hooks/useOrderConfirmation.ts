@@ -53,6 +53,11 @@ export function useOrderConfirmation(mesaId?: string | null) {
       )
     }
 
+    // Pedidos con mesa: cocina inmediata y cuenta diferida; no abrir modal de factura.
+    if (mesaId) {
+      return null
+    }
+
     if (!FEATURES.POS_FACTURA_MODAL) {
       // Feature flag apagado: confirmación directa sin factura (sin modal).
       // El flujo de UI llamará a `confirmOrderNoFactura`.
@@ -144,7 +149,7 @@ export function useOrderConfirmation(mesaId?: string | null) {
         tipo,
         items,
         total,
-        emitirFactura: true,
+        emitirFactura: !mesaId,
         facturaALNombreDelCliente,
         facturaMostrarNombreYCI: !facturaALNombreDelCliente && comprobanteNombreYCI,
         puntosRetornoPct,

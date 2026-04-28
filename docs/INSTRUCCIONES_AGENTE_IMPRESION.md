@@ -45,6 +45,19 @@ Evitar imprimir dos veces la misma emisión si también reaccionás a otros camp
 
 Guía autocontenida para el repo del agente: [`AGENTE_AJUSTE_EMISION_EDIT_A_FACT.md`](AGENTE_AJUSTE_EMISION_EDIT_A_FACT.md).
 
+### 3d. Regla especial para Mesas (cocina inmediata, factura diferida)
+
+Para pedidos con `mesa_id`:
+
+- En emisión inicial (`EDIT -> FACT`): imprimir **solo cocina**.
+- En ese flujo no se muestra el resumen normal de confirmación en POS; la cuenta queda abierta en la mesa.
+- La factura se difiere a la acción "Imprimir cuenta / Cerrar cuenta".
+- Karubox crea la fila en `facturas` y luego encola `reprint_solicitud` con `tipo = 'factura'`.
+- En esa cola, cada `INSERT` de factura imprime **una sola** copia.
+- El cierre de cuenta se puede disparar desde POS (modo mesa) o desde el panel Mesas; al completarse, la mesa queda en `libre`.
+
+Contrato completo: [`CONTRATO_MESAS_IMPRESION_OPERATIVO.md`](CONTRATO_MESAS_IMPRESION_OPERATIVO.md).
+
 ## 📡 Formato de Request que Envía la App Web
 
 La app web envía un `POST` a tu agente en:
