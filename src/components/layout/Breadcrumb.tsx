@@ -73,6 +73,12 @@ export function Breadcrumb() {
         path: '/owner/caja',
         icon: <FileText className="w-4 h-4" />,
       })
+    } else if (pathname === '/owner/analytics') {
+      items.push({
+        label: 'Analytics Landing',
+        path: '/owner/analytics',
+        icon: <LayoutDashboard className="w-4 h-4" />,
+      })
     } else if (pathname === '/owner/tenants') {
       items.push({
         label: 'Lomiterías',

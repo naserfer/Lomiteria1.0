@@ -20,6 +20,7 @@ export const ROUTES = {
     COCINA: '/home/admin/cocina',
     CONFIGURACION: '/home/configuracion',
     OWNER: '/owner',
+    OWNER_ANALYTICS: '/owner/analytics',
     // KDS: '/home/kds',
     // INVENTARIO: '/home/dashboard/inventario',
     // REPORTES: '/home/dashboard/reportes',

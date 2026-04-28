@@ -15,6 +15,14 @@ const OWNER_CARDS = [
     label: 'Ver lomiterías',
   },
   {
+    title: 'Analytics Landing',
+    description: 'Tráfico de la landing pública: usuarios, sesiones, páginas vistas y fuentes (GA4).',
+    href: '/owner/analytics',
+    icon: 'admin' as const,
+    color: 'green' as const,
+    label: 'Ver analytics',
+  },
+  {
     title: 'Caja de socios',
     description: 'Lista simple de cosas a pagar entre Naser e Iván.',
     href: '/owner/caja',
