@@ -32,6 +32,7 @@ import { ChannelPieChart } from './ChannelPieChart'
 import { InventoryGrid } from './InventoryGrid'
 import { InventoryDrawer } from './InventoryDrawer'
 import { SalsasDrawer } from './SalsasDrawer'
+import { CategoriaModal } from './CategoriaModal'
 import type { AdminDatePreset } from '../types/admin.types'
 import { resolveAdminDateRange } from '../utils/date.utils'
 
@@ -41,6 +42,7 @@ export const AdminView = () => {
   const [showOwnerProductModal, setShowOwnerProductModal] = useState(false)
   const [showProductosListModal, setShowProductosListModal] = useState(false)
   const [showStockDrawer, setShowStockDrawer] = useState(false)
+  const [showCategoriaModal, setShowCategoriaModal] = useState(false)
   const [showSalsasDrawer, setShowSalsasDrawer] = useState(false)
   const [showCerrarCajaModal, setShowCerrarCajaModal] = useState(false)
   const [showConfirmEmpezar, setShowConfirmEmpezar] = useState(false)
@@ -135,6 +137,11 @@ export const AdminView = () => {
     refetch()
   }
 
+  const handleCategoriaSaved = () => {
+    setShowCategoriaModal(false)
+    refetch()
+  }
+
   const handleSalsasSaved = () => {
     setShowSalsasDrawer(false)
     refetch()
@@ -180,6 +187,7 @@ export const AdminView = () => {
         datosUltimoTurno={datosUltimoTurno}
         onOpenIngredienteModal={() => setShowIngredienteModal(true)}
         onOpenStockDrawer={() => setShowStockDrawer(true)}
+        onOpenCategoriaModal={() => setShowCategoriaModal(true)}
         onOpenSalsasDrawer={canManageProducts ? () => setShowSalsasDrawer(true) : undefined}
         onOpenProductosList={canManageProducts ? () => setShowProductosListModal(true) : undefined}
         onOpenProductModal={canManageProducts ? () => setShowOwnerProductModal(true) : undefined}
@@ -296,6 +304,13 @@ export const AdminView = () => {
         onClose={() => setShowSalsasDrawer(false)}
         tenantId={tenant.id}
         onSaved={handleSalsasSaved}
+      />
+
+      <CategoriaModal
+        open={showCategoriaModal}
+        onClose={() => setShowCategoriaModal(false)}
+        tenantId={tenant.id}
+        onSaved={handleCategoriaSaved}
       />
 
       {/* Confirmación: Empezar el día */}

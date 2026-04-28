@@ -7,7 +7,7 @@
 
 import { useRouter } from 'next/navigation'
 import { useCallback, useState } from 'react'
-import { BarChart3, PlusCircle, Users, ChefHat, ArrowDownCircle, Package, List, Loader2, Sun, Wallet, Droplets, History } from 'lucide-react'
+import { BarChart3, PlusCircle, Users, ChefHat, ArrowDownCircle, Package, List, Loader2, Sun, Wallet, Droplets, History, Tag } from 'lucide-react'
 import { DatePresetPills } from './DatePresetPills'
 import { formatGuaranies } from '@/lib/utils/format'
 import { ROUTES } from '@/config/routes'
@@ -25,6 +25,7 @@ interface AdminHeaderProps {
   datosUltimoTurno?: boolean
   onOpenIngredienteModal: () => void
   onOpenStockDrawer: () => void
+  onOpenCategoriaModal?: () => void
   onOpenSalsasDrawer?: () => void
   onOpenProductModal?: () => void
   onOpenProductosList?: () => void
@@ -48,6 +49,7 @@ export const AdminHeader = ({
   datosUltimoTurno = false,
   onOpenIngredienteModal,
   onOpenStockDrawer,
+  onOpenCategoriaModal,
   onOpenSalsasDrawer,
   onOpenProductModal,
   onOpenProductosList,
@@ -274,7 +276,20 @@ export const AdminHeader = ({
             </button>
           )}
 
-          {/* 6. Nuevo producto */}
+          {/* 6. Categorías */}
+          {onOpenCategoriaModal && (
+            <button
+              type="button"
+              onClick={onOpenCategoriaModal}
+              disabled={isNavigating}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-sky-400 dark:border-sky-700 bg-sky-50 dark:bg-sky-950/40 px-4 py-2.5 text-sm font-semibold text-sky-700 dark:text-sky-300 hover:bg-sky-100 dark:hover:bg-sky-900/50 transition disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              <Tag className="w-4 h-4 shrink-0" />
+              Categorías
+            </button>
+          )}
+
+          {/* 7. Nuevo producto */}
           {onOpenProductModal && (
             <button
               type="button"
@@ -287,7 +302,7 @@ export const AdminHeader = ({
             </button>
           )}
 
-          {/* 6.1 Salsas por vasitos */}
+          {/* 7.1 Salsas por vasitos */}
           {onOpenSalsasDrawer && (
             <button
               type="button"
@@ -300,7 +315,7 @@ export const AdminHeader = ({
             </button>
           )}
 
-          {/* 7. Registrar materia prima — CTA secundario */}
+          {/* 8. Registrar materia prima — CTA secundario */}
           <button
             type="button"
             onClick={onOpenIngredienteModal}
