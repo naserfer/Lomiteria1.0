@@ -77,6 +77,13 @@ const PAGE_MAP: Array<{ test: (pathname: string) => boolean; info: PageInfo }> =
     }
   },
   {
+    test: (path) => path.startsWith('/owner/analytics'),
+    info: {
+      title: 'Analytics',
+      subtitle: 'Tráfico de la landing desde Google Analytics 4.',
+    }
+  },
+  {
     test: (path) => path.startsWith('/owner/tenants'),
     info: {
       title: 'Lomiterías',

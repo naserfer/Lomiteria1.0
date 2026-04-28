@@ -4,8 +4,17 @@ import { useRouter } from 'next/navigation'
 import { useCallback, useState } from 'react'
 import { AppDashboardCard } from '@/features/common/components/AppDashboardCard'
 import { useTenant } from '@/contexts/TenantContext'
+import { ROUTES } from '@/config/routes'
 
 const OWNER_CARDS = [
+  {
+    title: 'Analytics Landing',
+    description: 'Usuarios, sesiones, páginas vistas y fuentes de tráfico de la home pública.',
+    href: ROUTES.PROTECTED.OWNER_ANALYTICS,
+    icon: 'admin' as const,
+    color: 'green' as const,
+    label: 'Ver métricas',
+  },
   {
     title: 'Lomiterías registradas',
     description: 'Alta, baja y gestión de todas las lomiterías dentro de Karubox.',

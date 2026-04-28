@@ -20,6 +20,7 @@ import {
   Settings,
   Loader2,
   Table2,
+  BarChart3,
 } from 'lucide-react'
 import { useTenant } from '@/contexts/TenantContext'
 import { ROUTES } from '@/config/routes'
@@ -73,11 +74,11 @@ export function Breadcrumb() {
         path: '/owner/caja',
         icon: <FileText className="w-4 h-4" />,
       })
-    } else if (pathname === '/owner/analytics') {
+    } else if (pathname === ROUTES.PROTECTED.OWNER_ANALYTICS) {
       items.push({
         label: 'Analytics Landing',
-        path: '/owner/analytics',
-        icon: <LayoutDashboard className="w-4 h-4" />,
+        path: ROUTES.PROTECTED.OWNER_ANALYTICS,
+        icon: <BarChart3 className="w-4 h-4" />,
       })
     } else if (pathname === '/owner/tenants') {
       items.push({

@@ -39,6 +39,10 @@ function backToOwnerLinkClass(darkMode: boolean): string {
   }`
 }
 
+/**
+ * El `main` de AppFrame ya aplica `px-4`; estos valores suman lo que falte respecto al notch /
+ * Dynamic Island / home indicator (iPhone y similares).
+ */
 const SAFE_INSET_SHELL =
   'pl-[max(0px,calc(env(safe-area-inset-left,0px)-1rem))] pr-[max(0px,calc(env(safe-area-inset-right,0px)-1rem))] pb-[max(1rem,calc(0.75rem+env(safe-area-inset-bottom,0px)))]'
 
@@ -80,7 +84,7 @@ export function OwnerAnalyticsView(props: Props) {
               Instalá el tag de GA4 (por ejemplo con Google Tag Manager en todo el sitio, ya integrado en el layout).
             </li>
             <li>
-              En Google Cloud, creá una cuenta de servicio con acceso a la API "Google Analytics Data API",
+              En Google Cloud, creá una cuenta de servicio con acceso a la API “Google Analytics Data API”,
               descargá la clave JSON y pegá el JSON completo (una línea) en{' '}
               <code className="rounded bg-black/10 px-1 py-0.5 text-xs">GA4_SERVICE_ACCOUNT_JSON</code>.
             </li>

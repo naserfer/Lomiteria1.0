@@ -3,6 +3,7 @@ import "./globals.css";
 import { LOGO_SISTEMA_2026_PATH } from "@/config/branding";
 import { TenantProvider } from "@/contexts/TenantContext";
 import { AppFrame } from "@/components/layout/AppFrame";
+import { GoogleTagManager } from "@/components/analytics/GoogleTagManager";
 
 export const metadata: Metadata = {
   title: "KarúBox - Plataforma POS",
@@ -27,6 +28,7 @@ export default function RootLayout({
   return (
     <html lang="es" className="h-full min-h-[100dvh] scroll-smooth">
       <body className="h-full min-h-[100dvh] w-full min-w-0 antialiased">
+        <GoogleTagManager />
         <TenantProvider>
           <AppFrame>{children}</AppFrame>
         </TenantProvider>
