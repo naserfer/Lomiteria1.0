@@ -34,17 +34,19 @@ import { InventoryDrawer } from './InventoryDrawer'
 import { SalsasDrawer } from './SalsasDrawer'
 import { CategoriaModal } from './CategoriaModal'
 import { GestionMesasModal } from './GestionMesasModal'
+import { ActivarMesasModal } from '@/features/mesas/components/ActivarMesasModal'
 import type { AdminDatePreset } from '../types/admin.types'
 import { resolveAdminDateRange } from '../utils/date.utils'
 
 export const AdminView = () => {
-  const { tenant, usuario, darkMode } = useTenant()
+  const { tenant, usuario, darkMode, hasMesas } = useTenant()
   const [showIngredienteModal, setShowIngredienteModal] = useState(false)
   const [showOwnerProductModal, setShowOwnerProductModal] = useState(false)
   const [showProductosListModal, setShowProductosListModal] = useState(false)
   const [showStockDrawer, setShowStockDrawer] = useState(false)
   const [showCategoriaModal, setShowCategoriaModal] = useState(false)
   const [showMesasModal, setShowMesasModal] = useState(false)
+  const [showActivarMesasModal, setShowActivarMesasModal] = useState(false)
   const [showSalsasDrawer, setShowSalsasDrawer] = useState(false)
   const [showCerrarCajaModal, setShowCerrarCajaModal] = useState(false)
   const [showConfirmEmpezar, setShowConfirmEmpezar] = useState(false)
@@ -196,7 +198,7 @@ export const AdminView = () => {
         onOpenIngredienteModal={() => setShowIngredienteModal(true)}
         onOpenStockDrawer={() => setShowStockDrawer(true)}
         onOpenCategoriaModal={() => setShowCategoriaModal(true)}
-        onOpenMesasModal={() => setShowMesasModal(true)}
+        onOpenMesasModal={() => hasMesas ? setShowMesasModal(true) : setShowActivarMesasModal(true)}
         onOpenSalsasDrawer={canManageProducts ? () => setShowSalsasDrawer(true) : undefined}
         onOpenProductosList={canManageProducts ? () => setShowProductosListModal(true) : undefined}
         onOpenProductModal={canManageProducts ? () => setShowOwnerProductModal(true) : undefined}
@@ -330,6 +332,10 @@ export const AdminView = () => {
         canDelete={isAdmin}
         usuarioId={usuario?.id ?? null}
       />
+
+      {showActivarMesasModal && (
+        <ActivarMesasModal onClose={() => setShowActivarMesasModal(false)} />
+      )}
 
       {/* Confirmación: Empezar el día */}
       <ConfirmModal

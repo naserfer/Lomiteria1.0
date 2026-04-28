@@ -160,6 +160,38 @@ export async function listUsuariosMyTenant(): Promise<{ error: string | null; us
 }
 
 /**
+ * Activa o desactiva el módulo de gestión de mesas para el tenant del admin en sesión.
+ * Solo administradores pueden cambiar esta configuración.
+ */
+export async function toggleGestionMesas(enabled: boolean): Promise<{ error: string | null }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'No hay sesión activa' }
+
+  const { data: usuario, error: usuarioError } = await supabase
+    .from('usuarios')
+    .select('id, tenant_id, rol')
+    .eq('auth_user_id', user.id)
+    .eq('is_deleted', false)
+    .single()
+
+  if (usuarioError || !usuario) return { error: 'Usuario no encontrado' }
+  if (usuario.rol !== 'admin') return { error: 'Solo el administrador puede cambiar esta configuración' }
+
+  const tenantId = usuario.tenant_id
+  if (!tenantId) return { error: 'Usuario sin negocio asignado' }
+
+  const { error } = await supabase
+    .from('tenants')
+    .update({ gestion_mesas: enabled, updated_at: new Date().toISOString() })
+    .eq('id', tenantId)
+    .eq('is_deleted', false)
+
+  if (error) return { error: 'Error al guardar. Intentalo nuevamente.' }
+  return { error: null }
+}
+
+/**
  * Permite al admin del tenant actualizar el nombre de un usuario del mismo tenant.
  */
 export async function updateNombreUsuarioMyTenant(usuarioId: string, nombre: string): Promise<{ error: string | null }> {

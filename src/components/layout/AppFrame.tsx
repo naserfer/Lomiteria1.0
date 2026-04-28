@@ -161,13 +161,22 @@ export function AppFrame({ children }: { children: ReactNode }) {
             ? 'min-w-0 px-0'
             : pageInfo.fullWidth
               ? (isPosPage || isKitchenPage ? 'py-0' : 'py-4')
-              : 'px-4 py-6'
+              : 'py-6'
         }         ${
           isLoginPage
             ? 'overflow-y-auto overflow-x-hidden overscroll-y-auto scrollbar-none'
             : ''
         } ${!isAuthLikePage && (isPosPage || isKitchenPage) ? 'overflow-hidden' : ''}`}
-        style={isAuthLikePage ? { paddingTop: 'env(safe-area-inset-top, 0px)' } : undefined}
+        style={
+          isAuthLikePage
+            ? { paddingTop: 'env(safe-area-inset-top, 0px)' }
+            : !pageInfo.fullWidth
+              ? {
+                  paddingLeft: 'max(1rem, env(safe-area-inset-left, 0px))',
+                  paddingRight: 'max(1rem, env(safe-area-inset-right, 0px))',
+                }
+              : undefined
+        }
       >
         {pageInfo.fullWidth || isLandingPage || isLoginPage ? (
           children

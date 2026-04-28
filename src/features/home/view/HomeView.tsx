@@ -5,10 +5,12 @@ import { HomeHeader } from '../components/HomeHeader'
 import { DashboardCards } from '../components/DashboardCards'
 import { FeaturesList } from '../components/FeaturesList'
 import { HomeLoading } from '../components/HomeLoading'
+import { useTenant } from '@/contexts/TenantContext'
 import type { UserRole } from '@/config/routing'
 
 export default function HomeView() {
   const { tenant, usuario, darkMode, loading, isAuthenticated } = useHomeAuth()
+  const { hasMesas } = useTenant()
 
   if (loading) {
     return (
@@ -31,7 +33,7 @@ export default function HomeView() {
   return (
     <div className="h-full flex flex-col justify-center space-y-16 py-8">
       <HomeHeader tenantInfo={tenantInfo} darkMode={darkMode} />
-      <DashboardCards darkMode={darkMode} role={role} />
+      <DashboardCards darkMode={darkMode} role={role} hasMesas={hasMesas} />
       {/* <FeaturesList darkMode={darkMode} /> */}
     </div>
   )

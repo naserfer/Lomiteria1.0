@@ -107,8 +107,15 @@ export function AppNavbar({ pageTitle, pageSubtitle, actionsSlot }: AppNavbarPro
       className={`sticky top-0 z-40 border-b backdrop-blur ${
         darkMode ? 'bg-gray-950/80 border-gray-800' : 'bg-white/80 border-orange-100'
       }`}
+      style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}
     >
-      <div className="mx-auto max-w-7xl px-1.5 py-1 sm:px-2.5 sm:py-1.5 md:py-2">
+      <div
+        className="mx-auto max-w-7xl py-1 sm:py-1.5 md:py-2"
+        style={{
+          paddingLeft: 'max(0.375rem, env(safe-area-inset-left, 0px))',
+          paddingRight: 'max(0.375rem, env(safe-area-inset-right, 0px))',
+        }}
+      >
         <div className="flex flex-row items-center justify-between gap-2 md:gap-3">
           {/* Logo + título — compacto en móvil */}
           <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2 md:gap-3">

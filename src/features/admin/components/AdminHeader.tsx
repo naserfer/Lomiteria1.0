@@ -180,165 +180,177 @@ export const AdminHeader = ({
         </div>
       </div>
 
-      {/* Barra única de acciones: todos los botones en un solo bloque */}
-      <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-gray-50/80 dark:bg-gray-800/50 p-4">
-        <p className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-3">
-          Acciones
-        </p>
-        <div className="flex flex-wrap gap-3">
-          {/* 1. Principal: Ir al POS */}
-          <button
-            type="button"
-            onClick={() => handleNav(ROUTES.PROTECTED.POS)}
-            disabled={isNavigating}
-            className={`
-              inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition min-w-[7rem]
-              ${isNavigating ? 'cursor-not-allowed' : 'hover:opacity-90'}
-              disabled:opacity-60 disabled:cursor-not-allowed
-              ${isNavTo(ROUTES.PROTECTED.POS)
-                ? 'bg-gray-800 dark:bg-gray-700 text-white'
-                : 'bg-gray-900 dark:bg-gray-800 text-white'}
-            `}
-            aria-busy={isNavTo(ROUTES.PROTECTED.POS)}
-          >
-            {isNavTo(ROUTES.PROTECTED.POS) ? (
-              <Loader2 className="w-4 h-4 shrink-0 animate-spin" aria-hidden />
-            ) : (
-              <BarChart3 className="w-4 h-4 shrink-0" />
+      {/* Acciones: dos sub-secciones con jerarquía clara */}
+      <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-gray-50/80 dark:bg-gray-800/50 overflow-hidden">
+
+        {/* ── Navegar a ── */}
+        <div className="px-4 pt-4 pb-3">
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-2.5">
+            Navegar a
+          </p>
+          <div className="grid grid-cols-3 gap-2">
+
+            {/* POS */}
+            <button
+              type="button"
+              onClick={() => handleNav(ROUTES.PROTECTED.POS)}
+              disabled={isNavigating}
+              aria-busy={isNavTo(ROUTES.PROTECTED.POS)}
+              className={`flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 rounded-xl px-2 py-3 sm:px-4 sm:py-2.5 w-full text-xs sm:text-sm font-semibold text-white transition disabled:opacity-60 disabled:cursor-not-allowed ${isNavTo(ROUTES.PROTECTED.POS) ? 'bg-gray-700 dark:bg-gray-600' : 'bg-gray-900 dark:bg-gray-800 hover:bg-gray-700 dark:hover:bg-gray-700'}`}
+            >
+              {isNavTo(ROUTES.PROTECTED.POS)
+                ? <Loader2 className="w-4 h-4 shrink-0 animate-spin" aria-hidden />
+                : <BarChart3 className="w-4 h-4 shrink-0" />}
+              <span className="leading-tight text-center sm:text-left">Ir al POS</span>
+            </button>
+
+            {/* Cocina 3D */}
+            {(() => {
+              const href = `${ROUTES.PROTECTED.COCINA}?from=${ROUTES.COCINA_FROM.ADMIN}`
+              return (
+                <button
+                  type="button"
+                  onClick={() => handleNav(href)}
+                  disabled={isNavigating}
+                  aria-busy={isNavTo(href)}
+                  className={`flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 rounded-xl px-2 py-3 sm:px-4 sm:py-2.5 w-full text-xs sm:text-sm font-semibold text-white transition disabled:opacity-60 disabled:cursor-not-allowed ${isNavTo(href) ? 'bg-orange-700' : 'bg-orange-600 hover:bg-orange-700'}`}
+                >
+                  {isNavTo(href)
+                    ? <Loader2 className="w-4 h-4 shrink-0 animate-spin" aria-hidden />
+                    : <ChefHat className="w-4 h-4 shrink-0" />}
+                  <span className="leading-tight text-center sm:text-left">Cocina 3D</span>
+                </button>
+              )
+            })()}
+
+            {/* Clientes */}
+            {(() => {
+              const href = `${ROUTES.PROTECTED.CLIENTES}?from=${ROUTES.CLIENTES_FROM.ADMIN}`
+              return (
+                <button
+                  type="button"
+                  onClick={() => handleNav(href)}
+                  disabled={isNavigating}
+                  aria-busy={isNavTo(href)}
+                  className={`flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 rounded-xl px-2 py-3 sm:px-4 sm:py-2.5 w-full text-xs sm:text-sm font-semibold text-white transition disabled:opacity-60 disabled:cursor-not-allowed ${isNavTo(href) ? 'bg-purple-700' : 'bg-purple-600 hover:bg-purple-700'}`}
+                >
+                  {isNavTo(href)
+                    ? <Loader2 className="w-4 h-4 shrink-0 animate-spin" aria-hidden />
+                    : <Users className="w-4 h-4 shrink-0" />}
+                  <span className="leading-tight text-center sm:text-left">Clientes</span>
+                </button>
+              )
+            })()}
+          </div>
+        </div>
+
+        {/* Divider */}
+        <div className="mx-4 border-t border-gray-200 dark:border-gray-700" />
+
+        {/* ── Acciones rápidas ── */}
+        <div className="px-4 pt-3 pb-4">
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-2.5">
+            Acciones rápidas
+          </p>
+          {/*
+            flex-wrap + justify-center: cuando la última fila queda incompleta,
+            los botones huérfanos se centran automáticamente.
+            Cada botón tiene ancho fijo calculado para que entren exactamente
+            2 / 3 / 4 por fila según el breakpoint (gap-2 = 0.5rem).
+          */}
+          <div className="flex flex-wrap justify-center gap-2">
+
+            {/* Cargar stock */}
+            <button
+              type="button"
+              onClick={onOpenStockDrawer}
+              disabled={isNavigating}
+              className="flex-none w-[calc(50%-0.25rem)] sm:w-[calc(33.333%-0.334rem)] lg:w-[calc(25%-0.375rem)] flex items-center gap-2 rounded-xl border border-orange-500/80 bg-orange-50 dark:bg-orange-950/20 px-3 py-2.5 text-xs sm:text-sm font-semibold text-orange-700 dark:text-orange-400 hover:bg-orange-100 dark:hover:bg-orange-900/30 transition disabled:opacity-60 disabled:cursor-not-allowed min-w-0"
+            >
+              <ArrowDownCircle className="w-4 h-4 shrink-0" />
+              <span className="truncate">Cargar stock</span>
+            </button>
+
+            {/* Ver productos */}
+            {onOpenProductosList && (
+              <button
+                type="button"
+                onClick={onOpenProductosList}
+                disabled={isNavigating}
+                className="flex-none w-[calc(50%-0.25rem)] sm:w-[calc(33.333%-0.334rem)] lg:w-[calc(25%-0.375rem)] flex items-center gap-2 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2.5 text-xs sm:text-sm font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition disabled:opacity-60 disabled:cursor-not-allowed min-w-0"
+              >
+                <List className="w-4 h-4 shrink-0" />
+                <span className="truncate">Ver productos</span>
+              </button>
             )}
-            Ir al POS
-          </button>
 
-          {/* 2. Navegación: Cocina 3D (from=admin para breadcrumb) */}
-          {(() => {
-            const cocinaHref = `${ROUTES.PROTECTED.COCINA}?from=${ROUTES.COCINA_FROM.ADMIN}`
-            return (
-          <button
-            type="button"
-            onClick={() => handleNav(cocinaHref)}
-            disabled={isNavigating}
-            className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white bg-orange-600 dark:bg-orange-600 transition min-w-[7rem] disabled:opacity-60 disabled:cursor-not-allowed ${isNavigating ? 'cursor-not-allowed' : 'hover:bg-orange-700 dark:hover:bg-orange-500'}`}
-            aria-busy={isNavTo(cocinaHref)}
-          >
-            {isNavTo(cocinaHref) ? (
-              <Loader2 className="w-4 h-4 shrink-0 animate-spin" aria-hidden />
-            ) : (
-              <ChefHat className="w-4 h-4 shrink-0" />
+            {/* Categorías */}
+            {onOpenCategoriaModal && (
+              <button
+                type="button"
+                onClick={onOpenCategoriaModal}
+                disabled={isNavigating}
+                className="flex-none w-[calc(50%-0.25rem)] sm:w-[calc(33.333%-0.334rem)] lg:w-[calc(25%-0.375rem)] flex items-center gap-2 rounded-xl border border-sky-400 dark:border-sky-700 bg-sky-50 dark:bg-sky-950/40 px-3 py-2.5 text-xs sm:text-sm font-semibold text-sky-700 dark:text-sky-300 hover:bg-sky-100 dark:hover:bg-sky-900/50 transition disabled:opacity-60 disabled:cursor-not-allowed min-w-0"
+              >
+                <Tag className="w-4 h-4 shrink-0" />
+                <span className="truncate">Categorías</span>
+              </button>
             )}
-            Cocina 3D
-          </button>
-            )
-          })()}
 
-          {/* 3. Navegación: Clientes (from=admin para breadcrumb) */}
-          {(() => {
-            const clientesHref = `${ROUTES.PROTECTED.CLIENTES}?from=${ROUTES.CLIENTES_FROM.ADMIN}`
-            return (
-          <button
-            type="button"
-            onClick={() => handleNav(clientesHref)}
-            disabled={isNavigating}
-            className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white bg-purple-600 transition min-w-[7rem] disabled:opacity-60 disabled:cursor-not-allowed ${isNavigating ? 'cursor-not-allowed' : 'hover:opacity-90'}`}
-            aria-busy={isNavTo(clientesHref)}
-          >
-            {isNavTo(clientesHref) ? (
-              <Loader2 className="w-4 h-4 shrink-0 animate-spin" aria-hidden />
-            ) : (
-              <Users className="w-4 h-4 shrink-0" />
+            {/* Mesas */}
+            {onOpenMesasModal && (
+              <button
+                type="button"
+                onClick={onOpenMesasModal}
+                disabled={isNavigating}
+                className="flex-none w-[calc(50%-0.25rem)] sm:w-[calc(33.333%-0.334rem)] lg:w-[calc(25%-0.375rem)] flex items-center gap-2 rounded-xl border border-amber-400 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40 px-3 py-2.5 text-xs sm:text-sm font-semibold text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/50 transition disabled:opacity-60 disabled:cursor-not-allowed min-w-0"
+              >
+                <Table2 className="w-4 h-4 shrink-0" />
+                <span className="truncate">Mesas</span>
+              </button>
             )}
-            Clientes
-          </button>
-            )
-          })()}
 
-          {/* Separador visual: acciones en página */}
-          <span className="w-px self-stretch bg-gray-200 dark:bg-gray-600 hidden sm:block" aria-hidden />
+            {/* Nuevo producto */}
+            {onOpenProductModal && (
+              <button
+                type="button"
+                onClick={onOpenProductModal}
+                disabled={isNavigating}
+                className="flex-none w-[calc(50%-0.25rem)] sm:w-[calc(33.333%-0.334rem)] lg:w-[calc(25%-0.375rem)] flex items-center gap-2 rounded-xl border border-violet-400 dark:border-violet-600 bg-violet-50 dark:bg-violet-950/40 px-3 py-2.5 text-xs sm:text-sm font-semibold text-violet-700 dark:text-violet-300 hover:bg-violet-100 dark:hover:bg-violet-900/50 transition disabled:opacity-60 disabled:cursor-not-allowed min-w-0"
+              >
+                <Package className="w-4 h-4 shrink-0" />
+                <span className="truncate">Nuevo producto</span>
+              </button>
+            )}
 
-          {/* 4. Cargar stock */}
-          <button
-            type="button"
-            onClick={onOpenStockDrawer}
-            disabled={isNavigating}
-            className="inline-flex items-center justify-center gap-2 rounded-xl border border-orange-500/80 bg-orange-50 dark:bg-orange-950/20 px-4 py-2.5 text-sm font-semibold text-orange-700 dark:text-orange-400 hover:bg-orange-100 dark:hover:bg-orange-900/30 transition disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            <ArrowDownCircle className="w-4 h-4 shrink-0" />
-            Cargar stock
-          </button>
+            {/* Salsas */}
+            {onOpenSalsasDrawer && (
+              <button
+                type="button"
+                onClick={onOpenSalsasDrawer}
+                disabled={isNavigating}
+                className="flex-none w-[calc(50%-0.25rem)] sm:w-[calc(33.333%-0.334rem)] lg:w-[calc(25%-0.375rem)] flex items-center gap-2 rounded-xl border border-orange-300 dark:border-orange-700 bg-orange-50 dark:bg-orange-950/30 px-3 py-2.5 text-xs sm:text-sm font-semibold text-orange-700 dark:text-orange-300 hover:bg-orange-100 dark:hover:bg-orange-900/40 transition disabled:opacity-60 disabled:cursor-not-allowed min-w-0"
+              >
+                <Droplets className="w-4 h-4 shrink-0" />
+                <span className="truncate">Salsas</span>
+              </button>
+            )}
 
-          {/* 5. Ver productos */}
-          {onOpenProductosList && (
+            {/* Registrar materia prima */}
             <button
               type="button"
-              onClick={onOpenProductosList}
+              onClick={onOpenIngredienteModal}
               disabled={isNavigating}
-              className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-4 py-2.5 text-sm font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition disabled:opacity-60 disabled:cursor-not-allowed"
+              className="flex-none w-[calc(50%-0.25rem)] sm:w-[calc(33.333%-0.334rem)] lg:w-[calc(25%-0.375rem)] flex items-center gap-2 rounded-xl bg-orange-500 px-3 py-2.5 text-xs sm:text-sm font-semibold text-white hover:bg-orange-600 transition disabled:opacity-60 disabled:cursor-not-allowed min-w-0"
             >
-              <List className="w-4 h-4 shrink-0" />
-              Ver productos
+              <PlusCircle className="w-4 h-4 shrink-0" />
+              <span className="truncate">
+                <span className="sm:hidden">Materia prima</span>
+                <span className="hidden sm:inline">Registrar materia prima</span>
+              </span>
             </button>
-          )}
 
-          {/* 6. Categorías */}
-          {onOpenCategoriaModal && (
-            <button
-              type="button"
-              onClick={onOpenCategoriaModal}
-              disabled={isNavigating}
-              className="inline-flex items-center justify-center gap-2 rounded-xl border border-sky-400 dark:border-sky-700 bg-sky-50 dark:bg-sky-950/40 px-4 py-2.5 text-sm font-semibold text-sky-700 dark:text-sky-300 hover:bg-sky-100 dark:hover:bg-sky-900/50 transition disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              <Tag className="w-4 h-4 shrink-0" />
-              Categorías
-            </button>
-          )}
-
-          {onOpenMesasModal && (
-            <button
-              type="button"
-              onClick={onOpenMesasModal}
-              disabled={isNavigating}
-              className="inline-flex items-center justify-center gap-2 rounded-xl border border-amber-400 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40 px-4 py-2.5 text-sm font-semibold text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/50 transition disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              <Table2 className="w-4 h-4 shrink-0" />
-              Mesas
-            </button>
-          )}
-
-          {/* 7. Nuevo producto */}
-          {onOpenProductModal && (
-            <button
-              type="button"
-              onClick={onOpenProductModal}
-              disabled={isNavigating}
-              className="inline-flex items-center justify-center gap-2 rounded-xl border border-violet-400 dark:border-violet-600 bg-violet-50 dark:bg-violet-950/40 px-4 py-2.5 text-sm font-semibold text-violet-700 dark:text-violet-300 hover:bg-violet-100 dark:hover:bg-violet-900/50 transition disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              <Package className="w-4 h-4 shrink-0" />
-              Nuevo producto
-            </button>
-          )}
-
-          {/* 7.1 Salsas por vasitos */}
-          {onOpenSalsasDrawer && (
-            <button
-              type="button"
-              onClick={onOpenSalsasDrawer}
-              disabled={isNavigating}
-              className="inline-flex items-center justify-center gap-2 rounded-xl border border-orange-300 dark:border-orange-700 bg-orange-50 dark:bg-orange-950/30 px-4 py-2.5 text-sm font-semibold text-orange-700 dark:text-orange-300 hover:bg-orange-100 dark:hover:bg-orange-900/40 transition disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              <Droplets className="w-4 h-4 shrink-0" />
-              Salsas
-            </button>
-          )}
-
-          {/* 8. Registrar materia prima — CTA secundario */}
-          <button
-            type="button"
-            onClick={onOpenIngredienteModal}
-            disabled={isNavigating}
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-orange-600 transition disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            <PlusCircle className="w-4 h-4 shrink-0" />
-            Registrar materia prima
-          </button>
+          </div>
         </div>
       </div>
     </section>

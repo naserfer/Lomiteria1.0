@@ -28,7 +28,7 @@ export const ROLE_ACCESS = {
     ],
   },
   cajero: {
-    defaultRoute: ROUTES.PROTECTED.HOME,
+    defaultRoute: ROUTES.PROTECTED.POS,
     allowedRoutes: [
       ROUTES.PROTECTED.HOME,
       ROUTES.PROTECTED.POS,
