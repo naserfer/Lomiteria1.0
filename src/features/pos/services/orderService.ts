@@ -48,6 +48,8 @@ interface ConfirmOrderParams {
   facturaMostrarNombreYCI?: boolean
   /** % entero (1, 5 o 10) de retorno en puntos sobre el total cobrado. */
   puntosRetornoPct: PuntosRetornoPct
+  /** Si viene, el pedido se vincula a una mesa del salón. */
+  mesaId?: string | null
 }
 
 export const orderService = {
@@ -66,7 +68,9 @@ export const orderService = {
       facturaALNombreDelCliente,
       facturaMostrarNombreYCI = false,
       puntosRetornoPct,
+      mesaId = null,
     } = params
+    let mesaNumero: number | null = null
 
     const retornoPct = normalizePuntosRetornoPct(puntosRetornoPct)
 
@@ -76,6 +80,23 @@ export const orderService = {
 
     if (items.length === 0) {
       throw new Error('El carrito está vacío')
+    }
+
+    if (mesaId) {
+      const { data: mesa, error: mesaError } = await supabase
+        .from('mesas')
+        .select('id, numero, estado, activa')
+        .eq('tenant_id', tenantId)
+        .eq('id', mesaId)
+        .maybeSingle()
+
+      if (mesaError) throw toError(mesaError, 'Error al validar la mesa del pedido')
+      if (!mesa) throw new Error('La mesa seleccionada no existe en este local')
+      if (!mesa.activa) throw new Error('La mesa seleccionada está inactiva')
+      if (mesa.estado === 'bloqueada') {
+        throw new Error('La mesa está bloqueada. Elegí otra mesa o desbloqueala.')
+      }
+      mesaNumero = Number(mesa.numero)
     }
 
     // Orden de impresión/cocina:
@@ -118,6 +139,7 @@ export const orderService = {
         tenant_id: tenantId,
         cliente_id: cliente?.id || null,
         usuario_id: usuarioId,
+        mesa_id: mesaId,
         tipo,
         total,
         puntos_generados: cliente ? puntosGenerados : 0,
@@ -290,6 +312,30 @@ export const orderService = {
       .eq('tenant_id', tenantId)
 
     if (errorConfirmacion) throw toError(errorConfirmacion, 'Error al confirmar el pedido para impresión')
+
+    if (mesaId) {
+      const { error: mesaOcupadaError } = await supabase
+        .from('mesas')
+        .update({
+          estado: 'ocupada',
+          updated_at: new Date().toISOString()
+        })
+        .eq('tenant_id', tenantId)
+        .eq('id', mesaId)
+
+      if (mesaOcupadaError) {
+        throw toError(mesaOcupadaError, 'Error al marcar la mesa como ocupada')
+      }
+
+      await supabase.from('mesa_eventos').insert({
+        tenant_id: tenantId,
+        mesa_id: mesaId,
+        pedido_id: pedido.id,
+        usuario_id: usuarioId,
+        tipo: 'ocupar_mesa',
+        payload: { source: 'confirmOrder' }
+      })
+    }
     
     const pedidoFacturado = { ...pedido, estado_pedido: 'FACT' as const }
 
@@ -307,6 +353,13 @@ export const orderService = {
       { label: 'Tipo', value: formatTipoPedido(tipo) },
       { label: 'Total cobrado', value: formatGuaranies(total) }
     ]
+
+    if (mesaId) {
+      successDetails.push({
+        label: 'Mesa',
+        value: mesaNumero && Number.isFinite(mesaNumero) ? `#${mesaNumero}` : 'Mesa asignada'
+      })
+    }
 
     if (cliente) {
       successDetails.push({ label: 'Cliente', value: cliente.nombre })

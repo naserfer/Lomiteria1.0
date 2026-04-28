@@ -17,6 +17,7 @@ const CARD_LABELS: Record<DashboardCard['icon'], string> = {
   pedidos: 'Ver historial',
   clientes: 'Ver clientes',
   cocina: 'Abrir cocina 3D',
+  mesas: 'Abrir panel mesas',
 }
 
 export function DashboardCardComponent({

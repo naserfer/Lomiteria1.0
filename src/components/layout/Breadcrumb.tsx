@@ -18,6 +18,7 @@ import {
   FileText,
   Settings,
   Loader2,
+  Table2,
 } from 'lucide-react'
 import { useTenant } from '@/contexts/TenantContext'
 import { ROUTES } from '@/config/routes'
@@ -169,6 +170,12 @@ export function Breadcrumb() {
         label: 'Punto de Venta',
         path: ROUTES.PROTECTED.POS,
         icon: <ShoppingCart className="w-4 h-4" />,
+      })
+    } else if (pathname.startsWith('/home/mesas')) {
+      items.push({
+        label: 'Mesas',
+        path: ROUTES.PROTECTED.MESAS,
+        icon: <Table2 className="w-4 h-4" />,
       })
     } else if (pathname.startsWith('/home/pedidos')) {
       const fromPedidos = searchParams.get('from')

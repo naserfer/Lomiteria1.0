@@ -7,12 +7,13 @@ import {
   FileText,
   Users,
   ChefHat,
+  Table2,
   Loader2,
   Store,
   Wallet,
 } from 'lucide-react'
 
-export type AppDashboardCardColor = 'orange' | 'blue' | 'green' | 'purple' | 'red'
+export type AppDashboardCardColor = 'orange' | 'blue' | 'green' | 'purple' | 'red' | 'amber'
 
 export type AppDashboardCardIcon =
   | 'pos'
@@ -20,6 +21,7 @@ export type AppDashboardCardIcon =
   | 'pedidos'
   | 'clientes'
   | 'cocina'
+  | 'mesas'
   | 'stores'
   | 'wallet'
 
@@ -29,6 +31,7 @@ const APP_CARD_ICONS: Record<AppDashboardCardIcon, React.ComponentType<{ classNa
   pedidos: FileText,
   clientes: Users,
   cocina: ChefHat,
+  mesas: Table2,
   stores: Store,
   wallet: Wallet,
 }
@@ -107,6 +110,18 @@ const COLOR_MAP: Record<
     barLight: 'bg-red-500',
     barDark: 'bg-red-500/50',
     ring: 'ring-red-500',
+  },
+  amber: {
+    shadow: 'hover:shadow-amber-500/20',
+    bgLight: 'bg-gradient-to-br from-white to-amber-50',
+    blob: 'bg-amber-500/10',
+    iconBgLight: 'bg-amber-100',
+    iconBgDark: 'bg-amber-500/20',
+    iconLight: 'text-amber-600',
+    iconDark: 'text-amber-400',
+    barLight: 'bg-amber-500',
+    barDark: 'bg-amber-500/50',
+    ring: 'ring-amber-500',
   },
 }
 

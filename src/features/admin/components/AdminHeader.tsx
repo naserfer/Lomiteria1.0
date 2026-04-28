@@ -7,7 +7,7 @@
 
 import { useRouter } from 'next/navigation'
 import { useCallback, useState } from 'react'
-import { BarChart3, PlusCircle, Users, ChefHat, ArrowDownCircle, Package, List, Loader2, Sun, Wallet, Droplets, History, Tag } from 'lucide-react'
+import { BarChart3, PlusCircle, Users, ChefHat, ArrowDownCircle, Package, List, Loader2, Sun, Wallet, Droplets, History, Tag, Table2 } from 'lucide-react'
 import { DatePresetPills } from './DatePresetPills'
 import { formatGuaranies } from '@/lib/utils/format'
 import { ROUTES } from '@/config/routes'
@@ -26,6 +26,7 @@ interface AdminHeaderProps {
   onOpenIngredienteModal: () => void
   onOpenStockDrawer: () => void
   onOpenCategoriaModal?: () => void
+  onOpenMesasModal?: () => void
   onOpenSalsasDrawer?: () => void
   onOpenProductModal?: () => void
   onOpenProductosList?: () => void
@@ -50,6 +51,7 @@ export const AdminHeader = ({
   onOpenIngredienteModal,
   onOpenStockDrawer,
   onOpenCategoriaModal,
+  onOpenMesasModal,
   onOpenSalsasDrawer,
   onOpenProductModal,
   onOpenProductosList,
@@ -286,6 +288,18 @@ export const AdminHeader = ({
             >
               <Tag className="w-4 h-4 shrink-0" />
               Categorías
+            </button>
+          )}
+
+          {onOpenMesasModal && (
+            <button
+              type="button"
+              onClick={onOpenMesasModal}
+              disabled={isNavigating}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-amber-400 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40 px-4 py-2.5 text-sm font-semibold text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/50 transition disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              <Table2 className="w-4 h-4 shrink-0" />
+              Mesas
             </button>
           )}
 

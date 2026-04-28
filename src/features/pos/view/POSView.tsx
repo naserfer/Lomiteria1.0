@@ -1,10 +1,12 @@
 'use client'
 
 import { useState, useEffect, useRef, useMemo } from 'react'
+import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import { LayoutDashboard, FileText, Loader2, ShoppingCart, Search, Gift, Printer, QrCode, X, ExternalLink, Copy, Check } from 'lucide-react'
+import { LayoutDashboard, FileText, Loader2, ShoppingCart, Search, Gift, Printer, QrCode, X, ExternalLink, Copy, Check, Table2 } from 'lucide-react'
 import { useCartStore } from '@/store/cartStore'
 import { useTenant } from '@/contexts/TenantContext'
+import { createClient } from '@/lib/supabase/client'
 import { useEstadoCaja } from '@/features/caja/hooks/useEstadoCaja'
 import { CajaCerradaModal } from '@/features/caja/components/CajaCerradaModal'
 import { FEATURES } from '@/config'
@@ -29,6 +31,7 @@ import { ReprintPOSModal } from '../components/ReprintPOSModal'
 import { AppFooter } from '@/components/layout/AppFooter'
 
 export default function POSView() {
+  const searchParams = useSearchParams()
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [isClientModalOpen, setIsClientModalOpen] = useState(false)
@@ -40,11 +43,13 @@ export default function POSView() {
   const [reprintModalOpen, setReprintModalOpen] = useState(false)
   const [isCartaQrModalOpen, setIsCartaQrModalOpen] = useState(false)
   const [cartaQrCopied, setCartaQrCopied] = useState(false)
+  const [mesaLabel, setMesaLabel] = useState<string | null>(null)
 
   const { usuario, tenant, loading: tenantLoading, darkMode, isAdmin, isCajero } = useTenant()
-  const { items, addItem, addComboItem } = useCartStore()
+  const { items, addItem, addComboItem, tipo, setTipo } = useCartStore()
   const { sesionAbierta, loading: loadingCaja } = useEstadoCaja(tenant?.id ?? null)
   const { categorias, productos, loading, feedback: dataFeedback } = usePOSData()
+  const mesaId = searchParams.get('mesaId')
   const {
     prepareConfirmOrder,
     confirmOrderWithFacturaChoice,
@@ -52,7 +57,7 @@ export default function POSView() {
     cancelFacturaModal,
     facturaPrefModalOpen,
     isProcessing,
-  } = useOrderConfirmation()
+  } = useOrderConfirmation(mesaId)
   const initialCategorySet = useRef(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const searchSentinelRef = useRef<HTMLDivElement>(null)
@@ -65,6 +70,38 @@ export default function POSView() {
     if (!tenant?.slug) return null
     return getAbsoluteCartaQrUrl(tenant.slug)
   }, [tenant?.slug])
+
+  useEffect(() => {
+    if (!mesaId || !tenant?.id) {
+      setMesaLabel(null)
+      return
+    }
+
+    if (tipo !== 'local') setTipo('local')
+
+    let mounted = true
+    const loadMesa = async () => {
+      const supabase = createClient()
+      const { data } = await supabase
+        .from('mesas')
+        .select('numero, nombre')
+        .eq('tenant_id', tenant.id)
+        .eq('id', mesaId)
+        .maybeSingle()
+
+      if (!mounted) return
+      if (data?.numero) {
+        setMesaLabel(`Mesa #${data.numero}${data.nombre ? ` · ${data.nombre}` : ''}`)
+      } else {
+        setMesaLabel('Mesa seleccionada')
+      }
+    }
+
+    void loadMesa()
+    return () => {
+      mounted = false
+    }
+  }, [mesaId, tenant?.id, setTipo, tipo])
   const cartaQrImageUrl = useMemo(() => {
     if (!cartaQrUrl) return ''
     return `https://api.qrserver.com/v1/create-qr-code/?size=360x360&margin=10&data=${encodeURIComponent(cartaQrUrl)}`
@@ -259,6 +296,11 @@ export default function POSView() {
                       <p className={`hidden sm:block text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                         Selecciona productos y confirma el pedido
                       </p>
+                      {mesaLabel && (
+                        <p className={`text-xs mt-0.5 font-semibold ${darkMode ? 'text-emerald-300' : 'text-emerald-700'}`}>
+                          Pedido en {mesaLabel}
+                        </p>
+                      )}
                     </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
@@ -316,6 +358,27 @@ export default function POSView() {
                       <Printer className="h-4 w-4 sm:h-4 sm:w-4" />
                       <span className="hidden sm:inline">Reimprimir</span>
                     </button>
+                    <Link
+                      href={ROUTES.PROTECTED.MESAS}
+                      onClick={() => setNavigatingTo(ROUTES.PROTECTED.MESAS)}
+                      title="Panel de mesas"
+                      className={`inline-flex items-center justify-center rounded-lg border p-2 sm:rounded-xl sm:gap-2 sm:px-3 sm:py-2 sm:text-sm sm:font-medium transition min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 ${
+                        navigatingTo !== null && navigatingTo !== ROUTES.PROTECTED.MESAS
+                          ? 'pointer-events-none cursor-not-allowed opacity-50'
+                          : ''
+                      } ${
+                        darkMode
+                          ? 'border-gray-600 text-gray-300 hover:bg-gray-700/50 hover:text-white'
+                          : 'border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-orange-200'
+                      }`}
+                    >
+                      {navigatingTo === ROUTES.PROTECTED.MESAS ? (
+                        <Loader2 className="h-4 w-4 animate-spin sm:h-4 sm:w-4" />
+                      ) : (
+                        <Table2 className="h-4 w-4 sm:h-4 sm:w-4" />
+                      )}
+                      <span className="hidden sm:inline">Mesas</span>
+                    </Link>
                     <Link
                       href={`${ROUTES.PROTECTED.PEDIDOS}?from=${ROUTES.PEDIDOS_FROM.POS}`}
                       onClick={() => setNavigatingTo(ROUTES.PROTECTED.PEDIDOS)}

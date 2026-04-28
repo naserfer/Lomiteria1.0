@@ -4,12 +4,14 @@ import { useRouter } from 'next/navigation'
 import { useCallback, useState } from 'react'
 import { DASHBOARD_CARDS } from '../constants/home.constants'
 import { DashboardCardComponent } from './DashboardCard'
+import type { UserRole } from '@/config/routing'
 
 interface DashboardCardsProps {
   darkMode: boolean
+  role?: UserRole
 }
 
-export function DashboardCards({ darkMode }: DashboardCardsProps) {
+export function DashboardCards({ darkMode, role }: DashboardCardsProps) {
   const router = useRouter()
   const [loadingHref, setLoadingHref] = useState<string | null>(null)
 
@@ -18,8 +20,13 @@ export function DashboardCards({ darkMode }: DashboardCardsProps) {
     router.push(href)
   }, [router])
 
-  const topRow = DASHBOARD_CARDS.slice(0, 3)
-  const bottomRow = DASHBOARD_CARDS.slice(3)
+  const visibleCards =
+    role === 'cajero'
+      ? DASHBOARD_CARDS.filter((card) => card.icon === 'pos' || card.icon === 'mesas')
+      : DASHBOARD_CARDS
+
+  const topRow = visibleCards.slice(0, 3)
+  const bottomRow = visibleCards.slice(3)
 
   return (
     <section className="max-w-6xl mx-auto space-y-8 px-3 md:px-0">

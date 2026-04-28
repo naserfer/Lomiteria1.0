@@ -22,7 +22,14 @@ const PAGE_MAP: Array<{ test: (pathname: string) => boolean; info: PageInfo }> =
   {
     test: (path) => path === '/home',
     info: {
-      title: 'AtlasBurger',
+      title: 'Panel de inicio',
+    }
+  },
+  {
+    test: (path) => path.startsWith('/home/mesas'),
+    info: {
+      title: 'Mesas',
+      subtitle: 'Gestioná ocupación, reservas y pedidos por mesa.',
     }
   },
   {

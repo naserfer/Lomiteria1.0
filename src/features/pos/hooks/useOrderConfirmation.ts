@@ -7,7 +7,7 @@ import { orderService } from '../services/orderService'
 import type { FeedbackState, FeedbackDetail } from '../types/pos.types'
 import { buildUnexpectedErrorState } from '../utils/error.utils'
 
-export function useOrderConfirmation() {
+export function useOrderConfirmation(mesaId?: string | null) {
   const [isProcessing, setIsProcessing] = useState(false)
   const [facturaPrefModalOpen, setFacturaPrefModalOpen] = useState(false)
 
@@ -29,6 +29,13 @@ export function useOrderConfirmation() {
       return showInlineError(
         'Seleccioná el tipo de pedido',
         'Elegí si es consumo local, delivery o para llevar antes de cobrar.'
+      )
+    }
+
+    if (mesaId && tipo !== 'local') {
+      return showInlineError(
+        'Tipo incompatible con mesa',
+        'Cuando el pedido se inicia desde mesa debe confirmarse como consumo local.'
       )
     }
 
@@ -82,6 +89,7 @@ export function useOrderConfirmation() {
         facturaALNombreDelCliente: false,
         facturaMostrarNombreYCI: false,
         puntosRetornoPct,
+        mesaId: mesaId ?? null,
       })
 
       clearCart()
@@ -140,6 +148,7 @@ export function useOrderConfirmation() {
         facturaALNombreDelCliente,
         facturaMostrarNombreYCI: !facturaALNombreDelCliente && comprobanteNombreYCI,
         puntosRetornoPct,
+        mesaId: mesaId ?? null,
       })
 
       setFacturaPrefModalOpen(false)

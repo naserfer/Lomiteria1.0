@@ -33,6 +33,7 @@ import { InventoryGrid } from './InventoryGrid'
 import { InventoryDrawer } from './InventoryDrawer'
 import { SalsasDrawer } from './SalsasDrawer'
 import { CategoriaModal } from './CategoriaModal'
+import { GestionMesasModal } from './GestionMesasModal'
 import type { AdminDatePreset } from '../types/admin.types'
 import { resolveAdminDateRange } from '../utils/date.utils'
 
@@ -43,6 +44,7 @@ export const AdminView = () => {
   const [showProductosListModal, setShowProductosListModal] = useState(false)
   const [showStockDrawer, setShowStockDrawer] = useState(false)
   const [showCategoriaModal, setShowCategoriaModal] = useState(false)
+  const [showMesasModal, setShowMesasModal] = useState(false)
   const [showSalsasDrawer, setShowSalsasDrawer] = useState(false)
   const [showCerrarCajaModal, setShowCerrarCajaModal] = useState(false)
   const [showConfirmEmpezar, setShowConfirmEmpezar] = useState(false)
@@ -79,6 +81,7 @@ export const AdminView = () => {
 
   // Admin puede crear productos a partir de materias primas (recetas, combos, sin receta)
   const canManageProducts = usuario?.rol === 'admin'
+  const isAdmin = usuario?.rol === 'admin'
 
   const dateRange = useMemo(
     () =>
@@ -142,6 +145,11 @@ export const AdminView = () => {
     refetch()
   }
 
+  const handleMesasSaved = () => {
+    setShowMesasModal(false)
+    refetch()
+  }
+
   const handleSalsasSaved = () => {
     setShowSalsasDrawer(false)
     refetch()
@@ -188,6 +196,7 @@ export const AdminView = () => {
         onOpenIngredienteModal={() => setShowIngredienteModal(true)}
         onOpenStockDrawer={() => setShowStockDrawer(true)}
         onOpenCategoriaModal={() => setShowCategoriaModal(true)}
+        onOpenMesasModal={() => setShowMesasModal(true)}
         onOpenSalsasDrawer={canManageProducts ? () => setShowSalsasDrawer(true) : undefined}
         onOpenProductosList={canManageProducts ? () => setShowProductosListModal(true) : undefined}
         onOpenProductModal={canManageProducts ? () => setShowOwnerProductModal(true) : undefined}
@@ -311,6 +320,15 @@ export const AdminView = () => {
         onClose={() => setShowCategoriaModal(false)}
         tenantId={tenant.id}
         onSaved={handleCategoriaSaved}
+      />
+
+      <GestionMesasModal
+        open={showMesasModal}
+        onClose={() => setShowMesasModal(false)}
+        tenantId={tenant.id}
+        onSaved={handleMesasSaved}
+        canDelete={isAdmin}
+        usuarioId={usuario?.id ?? null}
       />
 
       {/* Confirmación: Empezar el día */}

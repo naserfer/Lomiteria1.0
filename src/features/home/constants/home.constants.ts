@@ -16,6 +16,13 @@ export const DASHBOARD_CARDS: DashboardCard[] = [
     color: 'orange'
   },
   {
+    title: 'Mesas',
+    description: 'Gestioná ocupación del salón, reservas y pedidos por mesa.',
+    href: ROUTES.PROTECTED.MESAS,
+    icon: 'mesas',
+    color: 'amber'
+  },
+  {
     title: 'Historial de pedidos',
     description: 'Consultá pedidos por fecha y estado. Solo administradores pueden anular.',
     href: `${ROUTES.PROTECTED.PEDIDOS}?from=${ROUTES.PEDIDOS_FROM.HOME}`,
