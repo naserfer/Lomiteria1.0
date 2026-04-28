@@ -43,6 +43,7 @@ export function InventoryDrawer({ open, onClose, tenantId, usuarioId, onSaved }:
   const [operation, setOperation] = useState<Operation>('entrada')
   const [quantity, setQuantity] = useState<number>(0)
   const [stockMin, setStockMin] = useState<number>(0)
+  const [precioPublico, setPrecioPublico] = useState<number>(0)
   const [controlStock, setControlStock] = useState(true)
   const [permiteExtraEnCarrito, setPermiteExtraEnCarrito] = useState(false)
   const [tipoRecargoExtra, setTipoRecargoExtra] = useState<'' | 'estandar' | 'proteina'>('')
@@ -109,6 +110,7 @@ export function InventoryDrawer({ open, onClose, tenantId, usuarioId, onSaved }:
       setCurrentStock(null)
       setCurrentProductId(null)
       setStockMin(0)
+      setPrecioPublico(0)
       setControlStock(true)
       setPermiteExtraEnCarrito(false)
       setTipoRecargoExtra('')
@@ -158,6 +160,7 @@ export function InventoryDrawer({ open, onClose, tenantId, usuarioId, onSaved }:
     if (!selectedIngredient || !open) {
       setCurrentStock(null)
       setCurrentProductId(null)
+      setPrecioPublico(0)
       return
     }
 
@@ -176,6 +179,7 @@ export function InventoryDrawer({ open, onClose, tenantId, usuarioId, onSaved }:
       if (!productId) {
         setCurrentStock(Number(selectedIngredient.stock_actual ?? 0))
         setStockMin(Number(selectedIngredient.stock_minimo ?? selectedIngredient.stock_minimo_sugerido ?? 0))
+        setPrecioPublico(Math.max(0, Math.round(Number(selectedIngredient.precio_publico ?? 0))))
         setControlStock(Boolean(selectedIngredient.controlar_stock ?? true))
         setPermiteExtraEnCarrito(Boolean(selectedIngredient.permite_extra_en_carrito))
         setTipoRecargoExtra(
@@ -201,6 +205,7 @@ export function InventoryDrawer({ open, onClose, tenantId, usuarioId, onSaved }:
       } else if (data) {
         setCurrentStock(Number(data.stock_actual ?? 0))
         setStockMin(Number(selectedIngredient.stock_minimo ?? data.stock_minimo ?? selectedIngredient.stock_minimo_sugerido ?? 0))
+        setPrecioPublico(Math.max(0, Math.round(Number(selectedIngredient.precio_publico ?? 0))))
         setControlStock(Boolean(data.controlar_stock))
         setPermiteExtraEnCarrito(Boolean(selectedIngredient.permite_extra_en_carrito))
         setTipoRecargoExtra(
@@ -212,6 +217,7 @@ export function InventoryDrawer({ open, onClose, tenantId, usuarioId, onSaved }:
       } else {
         setCurrentStock(Number(selectedIngredient.stock_actual ?? 0))
         setStockMin(Number(selectedIngredient.stock_minimo ?? selectedIngredient.stock_minimo_sugerido ?? 0))
+        setPrecioPublico(Math.max(0, Math.round(Number(selectedIngredient.precio_publico ?? 0))))
         setControlStock(Boolean(selectedIngredient.controlar_stock ?? true))
         setPermiteExtraEnCarrito(Boolean(selectedIngredient.permite_extra_en_carrito))
         setTipoRecargoExtra(
@@ -246,6 +252,7 @@ export function InventoryDrawer({ open, onClose, tenantId, usuarioId, onSaved }:
     const ingredientConfigChanged =
       Boolean(selectedIngredient.permite_extra_en_carrito) !== permiteExtraEnCarrito ||
       Number(selectedIngredient.stock_minimo ?? selectedIngredient.stock_minimo_sugerido ?? 0) !== stockMin ||
+      Number(selectedIngredient.precio_publico ?? 0) !== precioPublico ||
       Boolean(selectedIngredient.controlar_stock ?? true) !== controlStock ||
       tipoOriginal !== tipoRecargoExtra
     const hasStockMovement = operation === 'ajuste'
@@ -267,6 +274,7 @@ export function InventoryDrawer({ open, onClose, tenantId, usuarioId, onSaved }:
           .update({
             stock_minimo: stockMin,
             stock_minimo_sugerido: stockMin,
+            precio_publico: precioPublico,
             controlar_stock: controlStock,
             permite_extra_en_carrito: permiteExtraEnCarrito,
             tipo_recargo_extra: permiteExtraEnCarrito ? tipoRecargoExtra || null : null
@@ -322,6 +330,7 @@ export function InventoryDrawer({ open, onClose, tenantId, usuarioId, onSaved }:
           stock_actual: newStock,
           stock_minimo: stockMin,
           stock_minimo_sugerido: stockMin,
+          precio_publico: precioPublico,
           controlar_stock: controlStock,
           permite_extra_en_carrito: permiteExtraEnCarrito,
           tipo_recargo_extra: permiteExtraEnCarrito ? tipoRecargoExtra || null : null
@@ -586,6 +595,27 @@ export function InventoryDrawer({ open, onClose, tenantId, usuarioId, onSaved }:
                 className="mt-2 w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-orange-500 [appearance:textfield]"
               />
             </div>
+          </div>
+
+          <div>
+            <label className="text-sm font-semibold text-gray-700 dark:text-gray-200">
+              Precio extra en carrito (Gs.)
+            </label>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={formatNumberWithThousands(precioPublico)}
+              onChange={(e) => setPrecioPublico(Math.max(0, Math.round(parseFormattedNumber(e.target.value))))}
+              onBlur={(e) => {
+                const v = Math.max(0, Math.round(parseFormattedNumber(e.target.value)))
+                setPrecioPublico(v)
+              }}
+              placeholder="0"
+              className="mt-2 w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-orange-500 [appearance:textfield]"
+            />
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              Se usa para cobrar el extra de este ingrediente en el POS.
+            </p>
           </div>
 
           <div className="flex items-center gap-3">
