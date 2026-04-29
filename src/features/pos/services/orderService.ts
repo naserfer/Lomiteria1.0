@@ -348,7 +348,7 @@ export const orderService = {
 
     // Construir detalles del feedback
     const successDetails: FeedbackDetail[] = [
-      { label: 'Lomitería', value: tenantNombre },
+      { label: 'Local', value: tenantNombre },
       { label: 'Cajero', value: usuarioNombre },
       { label: 'Tipo', value: formatTipoPedido(tipo) },
       { label: 'Total cobrado', value: formatGuaranies(total) }

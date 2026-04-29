@@ -238,14 +238,8 @@ export default function POSView() {
     if (mesaId || !FEATURES.POS_FACTURA_MODAL) {
       const direct = await confirmOrderNoFactura()
       if (direct) {
-        if (mesaId && direct.type === 'success') {
-          setFeedback({
-            ...direct,
-            title:   `${direct.title} · ${mesaLabel ?? 'Mesa'}`,
-            message: 'Pedido enviado a cocina. Volviendo al panel…',
-          })
-          setTimeout(() => { window.location.href = backRoute }, 1800)
-        } else {
+        // En flujo de mesa: confirmar e imprimir ticket sin modal de éxito ni redirección.
+        if (!(mesaId && direct.type === 'success')) {
           setFeedback(direct)
         }
       }
@@ -255,14 +249,8 @@ export default function POSView() {
   const onFacturaModalConfirm = async (facturaALNombreDelCliente: boolean, comprobanteNombreYCI: boolean) => {
     const result = await confirmOrderWithFacturaChoice(facturaALNombreDelCliente, comprobanteNombreYCI)
     if (result) {
-      if (mesaId && result.type === 'success') {
-        setFeedback({
-          ...result,
-          title:   `${result.title} · ${mesaLabel ?? 'Mesa'}`,
-          message: 'Pedido enviado a cocina. Volviendo al panel…',
-        })
-        setTimeout(() => { window.location.href = backRoute }, 1800)
-      } else {
+      // Guard de seguridad: en mesa no mostrar modal de éxito ni navegar automáticamente.
+      if (!(mesaId && result.type === 'success')) {
         setFeedback(result)
       }
     }

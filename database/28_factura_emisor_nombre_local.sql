@@ -44,7 +44,24 @@ SELECT
     SELECT COALESCE(
       jsonb_agg(
         jsonb_build_object(
-          'producto_nombre', ip.producto_nombre,
+          -- En factura ocultamos sufijos de código de carta (ej: " - 71")
+          -- sin afectar el nombre usado en cocina/POS.
+          'producto_nombre',
+            regexp_replace(ip.producto_nombre, '\s-\s[0-9]+$', '')
+            || COALESCE(
+              (
+                SELECT
+                  CASE
+                    WHEN COUNT(*) = 0 THEN ''
+                    ELSE ' (Extra: ' || string_agg(i.nombre, ', ' ORDER BY i.nombre) || ')'
+                  END
+                FROM public.items_pedido_customizacion c
+                JOIN public.ingredientes i ON i.id = c.ingrediente_id
+                WHERE c.item_pedido_id = ip.id
+                  AND c.tipo = 'extra'
+              ),
+              ''
+            ),
           'cantidad', ip.cantidad,
           'precio_unitario', ip.precio_unitario,
           'subtotal', ip.subtotal,
@@ -57,11 +74,14 @@ SELECT
     )
     FROM public.items_pedido ip
     WHERE ip.pedido_id = f.pedido_id
-  ) AS detalle
+  ) AS detalle,
+  m.numero AS mesa_numero,
+  COALESCE(t.config_impresion ->> 'pie_ticket', '¡Gracias por tu compra!') AS saludo_final
 
 FROM public.facturas f
 JOIN public.tenants t ON t.id = f.tenant_id AND t.is_deleted = false
 JOIN public.pedidos p ON p.id = f.pedido_id
+LEFT JOIN public.mesas m ON m.id = p.mesa_id AND m.tenant_id = p.tenant_id
 LEFT JOIN public.clientes c ON c.id = f.cliente_id AND (c.is_deleted = false OR c.is_deleted IS NULL)
 LEFT JOIN public.tenant_facturacion tf ON tf.tenant_id = f.tenant_id;
 

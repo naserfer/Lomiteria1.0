@@ -32,6 +32,7 @@ export function ConfiguracionView() {
     ruc: '',
     razon_social: '',
     actividad_economica: '',
+    saludo_final: '',
   })
 
   useEffect(() => {
@@ -45,6 +46,7 @@ export function ConfiguracionView() {
       ruc: tenant.ruc ?? '',
       razon_social: tenant.razon_social ?? '',
       actividad_economica: tenant.actividad_economica ?? '',
+      saludo_final: tenant.config_impresion?.pie_ticket ?? '¡Gracias por tu compra!',
     })
     setPreviewKey((k) => k + 1)
   }, [tenant])
@@ -104,6 +106,7 @@ export function ConfiguracionView() {
       ruc: form.ruc,
       razon_social: form.razon_social,
       actividad_economica: form.actividad_economica,
+      saludo_final: form.saludo_final,
     })
     setSaving(false)
     if (result.error) {
@@ -332,6 +335,23 @@ export function ConfiguracionView() {
                 placeholder="Ej: Venta de comidas"
                 disabled={saving}
               />
+            </div>
+            <div>
+              <label htmlFor="config-saludo-final" className={labelClass}>
+                Texto final ticket/factura
+              </label>
+              <textarea
+                id="config-saludo-final"
+                value={form.saludo_final}
+                onChange={(e) => setField('saludo_final', e.target.value)}
+                className={inputClass}
+                placeholder="Ej: ¡Gracias por su preferencia!"
+                rows={3}
+                disabled={saving}
+              />
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                Se usa como saludo final en impresión (configuración por local).
+              </p>
             </div>
           </div>
 

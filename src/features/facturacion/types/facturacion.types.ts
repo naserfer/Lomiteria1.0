@@ -70,6 +70,8 @@ export interface FacturaParaImpresion {
   pedido_id: string
   tenant_id: string
   numero_pedido: number
+  mesa_numero: number | null
+  saludo_final: string
 
   emisor: FacturaEmisor
   receptor: FacturaReceptor

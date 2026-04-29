@@ -69,6 +69,9 @@ export function formatItemModificacionesForTicket(item: CartItem): string | null
           )
         )
       }
+      if (ci.customization?.notes?.trim()) {
+        mods.push(ci.customization.notes.trim())
+      }
       const qty = ci.cantidad > 1 ? ` x${ci.cantidad}` : ''
       return mods.length > 0
         ? `${ci.nombre}${qty} (${mods.join(' · ')})`

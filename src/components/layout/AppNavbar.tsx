@@ -143,7 +143,7 @@ export function AppNavbar({ pageTitle, pageSubtitle, actionsSlot }: AppNavbarPro
             </div>
           </div>
           {/* Bloque unificado: negocio + rol/nombre usuario + menú */}
-          <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+          <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
             {actionsSlot}
             <div className="relative flex items-center" ref={menuRef}>
               <button
@@ -174,7 +174,7 @@ export function AppNavbar({ pageTitle, pageSubtitle, actionsSlot }: AppNavbarPro
                     >
                       {(tenant.nombre ?? 'N').charAt(0).toUpperCase()}
                     </span>
-                    <span className={`hidden sm:inline text-sm font-semibold truncate max-w-[90px] md:max-w-[120px] ${darkMode ? 'text-gray-200' : 'text-gray-800'}`}>
+                    <span className={`hidden sm:inline text-sm font-semibold truncate max-w-[180px] md:max-w-[260px] lg:max-w-[340px] ${darkMode ? 'text-gray-200' : 'text-gray-800'}`}>
                       {tenant.nombre ?? '—'}
                     </span>
                   </>
@@ -183,10 +183,10 @@ export function AppNavbar({ pageTitle, pageSubtitle, actionsSlot }: AppNavbarPro
                 <span className="hidden sm:inline w-px h-5 bg-gray-300 dark:bg-gray-600 flex-shrink-0" />
                 <UserCircle2 className="w-5 h-5 shrink-0 text-gray-400 sm:w-5 sm:h-5" />
                 <div className="hidden sm:block text-xs leading-tight text-left min-w-0">
-                  <p className={`font-semibold truncate max-w-[100px] md:max-w-[140px] ${darkMode ? 'text-white' : 'text-gray-900'}`}>
+                  <p className={`font-semibold truncate max-w-[120px] md:max-w-[180px] lg:max-w-[220px] ${darkMode ? 'text-white' : 'text-gray-900'}`}>
                     {usuario?.nombre ?? 'Usuario'}
                   </p>
-                  <p className={`truncate max-w-[100px] md:max-w-[140px] ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                  <p className={`truncate max-w-[120px] md:max-w-[180px] lg:max-w-[220px] ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                     {usuario?.rol ? ROL_LABELS[usuario.rol] ?? usuario.rol : '—'}
                   </p>
                 </div>
