@@ -28,14 +28,14 @@ export function useOrderConfirmation(mesaId?: string | null) {
     if (!tipo) {
       return showInlineError(
         'Seleccioná el tipo de pedido',
-        'Elegí si es consumo local, delivery o para llevar antes de cobrar.'
+        'Elegí el tipo de pedido antes de cobrar.'
       )
     }
 
-    if (mesaId && tipo !== 'local') {
+    if (mesaId && tipo === 'delivery') {
       return showInlineError(
         'Tipo incompatible con mesa',
-        'Cuando el pedido se inicia desde mesa debe confirmarse como consumo local.'
+        'Los pedidos de mesa no pueden ser delivery. Elegí "Comer aquí" o "Para llevar".'
       )
     }
 

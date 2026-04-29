@@ -4,6 +4,194 @@ import type { EstadoMesa, Mesa, MesaReserva, MesaUnion, MesaUnionItem, PedidoDiv
 const MESAS_SELECT = 'id, tenant_id, numero, nombre, capacidad, estado, activa, orden, created_at, updated_at'
 
 export const mesasService = {
+  async updateItemCustomizacionExtraPrecio(params: {
+    tenantId: string
+    customizacionId: string
+    precioExtraGs: number
+  }): Promise<void> {
+    const supabase = createClient()
+    const precioExtra = Math.max(0, Math.round(Number(params.precioExtraGs) || 0))
+
+    const { data: custom, error: customError } = await supabase
+      .from('items_pedido_customizacion')
+      .select(`
+        id,
+        tipo,
+        precio_extra,
+        item_pedido_id
+      `)
+      .eq('id', params.customizacionId)
+      .single()
+
+    if (customError || !custom) {
+      throw new Error('No se pudo cargar el extra para actualizar su precio.')
+    }
+    if (custom.tipo !== 'extra') {
+      throw new Error('Solo se puede editar el precio de customizaciones tipo extra.')
+    }
+
+    const { data: itemRow, error: itemError } = await supabase
+      .from('items_pedido')
+      .select(`
+        id,
+        pedido_id,
+        subtotal,
+        pedidos!inner (
+          id,
+          tenant_id,
+          total,
+          estado,
+          estado_pedido
+        )
+      `)
+      .eq('id', custom.item_pedido_id)
+      .eq('pedidos.tenant_id', params.tenantId)
+      .single()
+
+    if (itemError || !itemRow) {
+      throw new Error('No se pudo validar el ítem asociado al extra.')
+    }
+
+    const item = itemRow
+    const pedido = Array.isArray(item.pedidos) ? item.pedidos[0] : item.pedidos
+    if (!item || !pedido) throw new Error('No se pudo validar el pedido asociado al extra.')
+    if (pedido.estado === 'cancelado') throw new Error('No se puede editar un pedido cancelado.')
+    if (!['EDIT', 'FACT'].includes(pedido.estado_pedido)) {
+      throw new Error('Solo se pueden editar pedidos abiertos o confirmados.')
+    }
+
+    const { data: extrasRows, error: extrasError } = await supabase
+      .from('items_pedido_customizacion')
+      .select('id, precio_extra')
+      .eq('item_pedido_id', item.id)
+      .eq('tipo', 'extra')
+
+    if (extrasError) {
+      throw new Error(`No se pudieron cargar los extras del ítem: ${extrasError.message}`)
+    }
+
+    const sumExtrasActual = (extrasRows ?? []).reduce((sum, row) => sum + Number(row.precio_extra ?? 0), 0)
+    const prevPrecioExtra = Number(custom.precio_extra ?? 0)
+    const sumExtrasNuevo = sumExtrasActual - prevPrecioExtra + precioExtra
+
+    const subtotalActual = Number(item.subtotal ?? 0)
+    const totalPedidoActual = Number(pedido.total ?? 0)
+    const subtotalBase = Math.max(0, subtotalActual - sumExtrasActual)
+    const nuevoSubtotal = Math.max(0, subtotalBase + sumExtrasNuevo)
+    const delta = nuevoSubtotal - subtotalActual
+    const nuevoTotalPedido = Math.max(0, totalPedidoActual + delta)
+
+    const { error: updateCustomError } = await supabase
+      .from('items_pedido_customizacion')
+      .update({ precio_extra: precioExtra })
+      .eq('id', params.customizacionId)
+
+    if (updateCustomError) {
+      throw new Error(`No se pudo actualizar el precio del extra: ${updateCustomError.message}`)
+    }
+
+    const { error: updateItemError } = await supabase
+      .from('items_pedido')
+      .update({ subtotal: nuevoSubtotal })
+      .eq('id', item.id)
+
+    if (updateItemError) {
+      throw new Error(`No se pudo actualizar el subtotal del ítem: ${updateItemError.message}`)
+    }
+
+    const { error: updatePedidoError } = await supabase
+      .from('pedidos')
+      .update({ total: nuevoTotalPedido, updated_at: new Date().toISOString() })
+      .eq('id', item.pedido_id)
+      .eq('tenant_id', params.tenantId)
+
+    if (updatePedidoError) {
+      throw new Error(`No se pudo actualizar el total del pedido: ${updatePedidoError.message}`)
+    }
+  },
+
+  async updateItemPedidoRecargo(params: {
+    tenantId: string
+    itemPedidoId: string
+    extraGs: number
+  }): Promise<{
+    pedidoId: string
+    itemPedidoId: string
+    nuevoSubtotal: number
+    nuevoTotalPedido: number
+  }> {
+    const supabase = createClient()
+    const extraGs = Math.max(0, Math.round(Number(params.extraGs) || 0))
+
+    const { data: itemRow, error: itemError } = await supabase
+      .from('items_pedido')
+      .select(`
+        id,
+        pedido_id,
+        cantidad,
+        precio_unitario,
+        subtotal,
+        pedidos!inner (
+          id,
+          tenant_id,
+          total,
+          estado,
+          estado_pedido
+        )
+      `)
+      .eq('id', params.itemPedidoId)
+      .eq('pedidos.tenant_id', params.tenantId)
+      .single()
+
+    if (itemError || !itemRow) {
+      throw new Error('No se pudo cargar el ítem del pedido para ajustar recargo.')
+    }
+
+    const pedido = Array.isArray(itemRow.pedidos) ? itemRow.pedidos[0] : itemRow.pedidos
+    if (!pedido) throw new Error('No se pudo validar el pedido del ítem.')
+    if (pedido.estado === 'cancelado') throw new Error('No se puede editar un pedido cancelado.')
+    if (!['EDIT', 'FACT'].includes(pedido.estado_pedido)) {
+      throw new Error('Solo se pueden editar pedidos abiertos o confirmados.')
+    }
+
+    const cantidad = Math.max(1, Number(itemRow.cantidad ?? 1))
+    const precioUnitario = Number(itemRow.precio_unitario ?? 0)
+    const subtotalActual = Number(itemRow.subtotal ?? 0)
+    const totalPedidoActual = Number(pedido.total ?? 0)
+
+    const subtotalBase = Math.max(0, precioUnitario * cantidad)
+    const nuevoSubtotal = subtotalBase + extraGs
+    const delta = nuevoSubtotal - subtotalActual
+    const nuevoTotalPedido = Math.max(0, totalPedidoActual + delta)
+
+    const nowIso = new Date().toISOString()
+    const { error: updateItemError } = await supabase
+      .from('items_pedido')
+      .update({ subtotal: nuevoSubtotal })
+      .eq('id', params.itemPedidoId)
+
+    if (updateItemError) {
+      throw new Error(`No se pudo actualizar el subtotal del ítem: ${updateItemError.message}`)
+    }
+
+    const { error: updatePedidoError } = await supabase
+      .from('pedidos')
+      .update({ total: nuevoTotalPedido, updated_at: nowIso })
+      .eq('id', itemRow.pedido_id)
+      .eq('tenant_id', params.tenantId)
+
+    if (updatePedidoError) {
+      throw new Error(`No se pudo actualizar el total del pedido: ${updatePedidoError.message}`)
+    }
+
+    return {
+      pedidoId: itemRow.pedido_id,
+      itemPedidoId: itemRow.id,
+      nuevoSubtotal,
+      nuevoTotalPedido,
+    }
+  },
+
   async listMesas(tenantId: string): Promise<Mesa[]> {
     const supabase = createClient()
     const { data, error } = await supabase
@@ -523,7 +711,15 @@ export const mesasService = {
           cantidad,
           precio_unitario,
           subtotal,
-          notas
+          notas,
+          items_pedido_customizacion (
+            id,
+            tipo,
+            precio_extra,
+            ingredientes:ingrediente_id (
+              nombre
+            )
+          )
         )
       `)
       .eq('tenant_id', tenantId)
@@ -549,6 +745,12 @@ export const mesasService = {
       const items = ((p.items_pedido ?? []) as Array<{
         id: string; producto_nombre: string; cantidad: number
         precio_unitario: number; subtotal: number; notas: string | null
+        items_pedido_customizacion?: Array<{
+          id: string
+          tipo: 'extra' | 'removido' | 'modificado'
+          precio_extra: number | null
+          ingredientes: { nombre: string | null } | Array<{ nombre: string | null }> | null
+        }>
       }>)
       resumen.pedidos.push({
         id: p.id,
@@ -556,7 +758,17 @@ export const mesasService = {
         estado_pedido: p.estado_pedido as 'EDIT' | 'FACT',
         total: p.total,
         created_at: p.created_at,
-        items,
+        items: items.map((item) => ({
+          ...item,
+          customizaciones: (item.items_pedido_customizacion ?? []).map((c) => ({
+            id: c.id,
+            tipo: c.tipo,
+            precio_extra: Number(c.precio_extra ?? 0),
+            ingrediente_nombre: Array.isArray(c.ingredientes)
+              ? (c.ingredientes[0]?.nombre ?? null)
+              : (c.ingredientes?.nombre ?? null),
+          })),
+        })),
       })
       resumen.total_items     += items.reduce((s, i) => s + i.cantidad, 0)
       resumen.total_acumulado += p.total

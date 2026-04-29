@@ -2,9 +2,10 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
+import Image from 'next/image'
 import { Save, Mail, Phone, MapPin, Building2, FileText, Upload, Loader2, LayoutGrid } from 'lucide-react'
 import { useTenant } from '@/contexts/TenantContext'
-import { updateMyTenant, uploadLogoMyTenant, toggleGestionMesas } from '@/app/actions/tenant'
+import { updateMyTenant, uploadLogoMyTenant, toggleGestionMesas, toggleDelivery } from '@/app/actions/tenant'
 
 const inputClass =
   'w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 dark:focus:ring-orange-400 dark:focus:border-orange-400 focus:outline-none transition bg-white dark:bg-gray-900/50 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500 disabled:opacity-50'
@@ -22,6 +23,8 @@ export function ConfiguracionView() {
   const [previewKey, setPreviewKey] = useState(0)
   const [togglingMesas, setTogglingMesas] = useState(false)
   const [mesasError, setMesasError] = useState('')
+  const [togglingDelivery, setTogglingDelivery] = useState(false)
+  const [deliveryError, setDeliveryError] = useState('')
 
   const [form, setForm] = useState({
     nombre: '',
@@ -32,6 +35,7 @@ export function ConfiguracionView() {
     ruc: '',
     razon_social: '',
     actividad_economica: '',
+    saludo_final: '',
   })
 
   useEffect(() => {
@@ -45,6 +49,7 @@ export function ConfiguracionView() {
       ruc: tenant.ruc ?? '',
       razon_social: tenant.razon_social ?? '',
       actividad_economica: tenant.actividad_economica ?? '',
+      saludo_final: tenant.config_impresion?.pie_ticket ?? '¡Gracias por tu compra!',
     })
     setPreviewKey((k) => k + 1)
   }, [tenant])
@@ -60,6 +65,18 @@ export function ConfiguracionView() {
     setTogglingMesas(false)
     if (result.error) {
       setMesasError(result.error)
+      return
+    }
+    await reloadTenant()
+  }
+
+  const handleToggleDelivery = async (enabled: boolean) => {
+    setTogglingDelivery(true)
+    setDeliveryError('')
+    const result = await toggleDelivery(enabled)
+    setTogglingDelivery(false)
+    if (result.error) {
+      setDeliveryError(result.error)
       return
     }
     await reloadTenant()
@@ -104,6 +121,7 @@ export function ConfiguracionView() {
       ruc: form.ruc,
       razon_social: form.razon_social,
       actividad_economica: form.actividad_economica,
+      saludo_final: form.saludo_final,
     })
     setSaving(false)
     if (result.error) {
@@ -122,7 +140,8 @@ export function ConfiguracionView() {
     )
   }
 
-  const mesasActivo = tenant?.gestion_mesas ?? false
+  const mesasActivo    = tenant?.gestion_mesas ?? false
+  const deliveryActivo = tenant?.has_delivery  ?? false
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
@@ -208,10 +227,13 @@ export function ConfiguracionView() {
               <div className="mt-3 flex items-center gap-3">
                 {form.logo_url ? (
                   <>
-                    <img
+                    <Image
                       key={`${form.logo_url}-${previewKey}`}
                       src={`${form.logo_url}${form.logo_url.includes('?') ? '&' : '?'}t=${previewKey}`}
                       alt="Vista previa del local"
+                      width={80}
+                      height={80}
+                      unoptimized
                       className="w-20 h-20 rounded-xl object-cover border border-gray-200 dark:border-gray-600 bg-gray-100 dark:bg-gray-800"
                       onError={(e) => {
                         const el = e.currentTarget
@@ -333,6 +355,23 @@ export function ConfiguracionView() {
                 disabled={saving}
               />
             </div>
+            <div>
+              <label htmlFor="config-saludo-final" className={labelClass}>
+                Texto final ticket/factura
+              </label>
+              <textarea
+                id="config-saludo-final"
+                value={form.saludo_final}
+                onChange={(e) => setField('saludo_final', e.target.value)}
+                className={inputClass}
+                placeholder="Ej: ¡Gracias por su preferencia!"
+                rows={3}
+                disabled={saving}
+              />
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                Se usa como saludo final en impresión (configuración por local).
+              </p>
+            </div>
           </div>
 
           <button
@@ -368,14 +407,14 @@ export function ConfiguracionView() {
         </div>
 
         <div className="p-6 space-y-4">
-          {mesasError && (
+          {(mesasError || deliveryError) && (
             <div className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 text-sm">
-              {mesasError}
+              {mesasError || deliveryError}
             </div>
           )}
 
           {/* Toggle: Gestión de Mesas */}
-          <div className="flex items-center justify-between gap-4 py-3 border-b border-gray-100 dark:border-gray-800 last:border-0">
+          <div className="flex items-center justify-between gap-4 py-3 border-b border-gray-100 dark:border-gray-800">
             <div className="min-w-0">
               <p className="text-sm font-semibold text-gray-900 dark:text-white">Gestión de Mesas</p>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
@@ -395,6 +434,32 @@ export function ConfiguracionView() {
               <span
                 className={`inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
                   mesasActivo ? 'translate-x-5' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
+
+          {/* Toggle: Delivery */}
+          <div className="flex items-center justify-between gap-4 py-3">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-gray-900 dark:text-white">Servicio de Delivery</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                Muestra la opción &quot;Delivery&quot; al tomar pedidos en el POS. Desactivado = solo Comer aquí y Para llevar.
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={deliveryActivo}
+              disabled={togglingDelivery}
+              onClick={() => handleToggleDelivery(!deliveryActivo)}
+              className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ${
+                deliveryActivo ? 'bg-orange-500' : 'bg-gray-200 dark:bg-gray-700'
+              }`}
+            >
+              <span
+                className={`inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
+                  deliveryActivo ? 'translate-x-5' : 'translate-x-0'
                 }`}
               />
             </button>

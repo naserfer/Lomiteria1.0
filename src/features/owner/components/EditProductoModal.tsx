@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useId } from 'react'
 import { createPortal } from 'react-dom'
+import Image from 'next/image'
 import { X, Package, Loader2, ChefHat, Plus, Trash2 } from 'lucide-react'
 import {
   listCategoriasOwner,
@@ -549,9 +550,12 @@ export function EditProductoModal({ open, onClose, tenantId, producto, onSaved }
                   className="w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-4 py-3 text-gray-900 dark:text-white placeholder:text-gray-400 focus:border-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-500/20 disabled:opacity-50"
                 />
                 {imagenUrl && (
-                  <img
+                  <Image
                     src={imagenUrl}
                     alt="Preview"
+                    width={800}
+                    height={96}
+                    unoptimized
                     className="mt-2 h-24 w-full rounded-xl object-cover"
                     onError={(e) => {
                       e.currentTarget.style.display = 'none'

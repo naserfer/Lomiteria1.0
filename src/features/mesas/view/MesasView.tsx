@@ -3,16 +3,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  Loader2, Table2, PlusCircle, Lock, CalendarClock, CheckCircle2,
-  MoveHorizontal, GitMerge, Trash2, Minus, Plus, SplitSquareHorizontal,
-  Link2, Phone, Users, MessageSquare, CircleDot, AlertTriangle, X, Pencil,
-  ChevronDown, ClipboardList,
+  Loader2, Table2, PlusCircle, CalendarClock, CheckCircle2,
+  MoveHorizontal, GitMerge, Trash2,
+  Link2, Phone, Users, MessageSquare, AlertTriangle, X, Pencil, Eye,
 } from 'lucide-react'
 import { useTenant } from '@/contexts/TenantContext'
 import { ROUTES } from '@/config/routes'
 import { createClient } from '@/lib/supabase/client'
 import { mesasService } from '../services/mesasService'
 import { cerrarCuentaMesaService } from '../services/cerrarCuentaMesaService'
+import { DetalleMesaModal } from '../components/DetalleMesaModal'
 import type { EstadoMesa, Mesa, MesaReserva, ResumenMesa } from '../types/mesas.types'
 
 // ─── Estilos por estado ────────────────────────────────────────────────────────
@@ -42,32 +42,6 @@ const ESTADO_LABEL: Record<EstadoMesa, string> = {
   libre: 'Libre', ocupada: 'Ocupada', reservada: 'Reservada', bloqueada: 'Bloqueada',
 }
 
-// ─── Botones de acción por estado ─────────────────────────────────────────────
-
-const BTN_LIBERAR = 'rounded-xl border border-emerald-300 bg-emerald-100 text-emerald-800 px-3 py-2 text-xs font-semibold hover:bg-emerald-200 transition dark:border-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300 dark:hover:bg-emerald-900/50 disabled:opacity-50'
-const BTN_OCUPAR  = 'rounded-xl border border-red-300 bg-red-100 text-red-800 px-3 py-2 text-xs font-semibold hover:bg-red-200 transition dark:border-red-700 dark:bg-red-900/30 dark:text-red-300 dark:hover:bg-red-900/50 disabled:opacity-50'
-const BTN_RESERVAR= 'rounded-xl border border-blue-300 bg-blue-100 text-blue-800 px-3 py-2 text-xs font-semibold hover:bg-blue-200 transition dark:border-blue-700 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-900/50 disabled:opacity-50'
-const BTN_BLOQUEAR= 'rounded-xl border border-gray-300 bg-gray-100 text-gray-700 px-3 py-2 text-xs font-semibold hover:bg-gray-200 transition dark:border-gray-600 dark:bg-gray-800/50 dark:text-gray-300 dark:hover:bg-gray-800 disabled:opacity-50'
-
-// ─── Skeleton resumen de pedido ───────────────────────────────────────────────
-
-function ResumenPedidoSkeleton() {
-  return (
-    <div className="space-y-2 py-1 animate-pulse">
-      {([75, 55, 65] as const).map((w, i) => (
-        <div key={i} className="flex items-center justify-between gap-2">
-          <div className="h-3 bg-red-100 dark:bg-red-900/30 rounded" style={{ width: `${w}%` }} />
-          <div className="h-3 bg-red-100 dark:bg-red-900/30 rounded w-16 shrink-0" />
-        </div>
-      ))}
-      <div className="flex items-center justify-between pt-1 border-t border-red-100 dark:border-red-900/30 mt-1">
-        <div className="h-3 bg-red-200 dark:bg-red-900/40 rounded w-10" />
-        <div className="h-3 bg-red-200 dark:bg-red-900/40 rounded w-20" />
-      </div>
-    </div>
-  )
-}
-
 // ─── Componente ───────────────────────────────────────────────────────────────
 
 export default function MesasView() {
@@ -92,6 +66,8 @@ export default function MesasView() {
   const [deletingReservaId, setDeletingReservaId] = useState<string | null>(null)
   const [cancelandoReservaId, setCancelandoReservaId] = useState<string | null>(null)
   const [closingCuentaMesaId, setClosingCuentaMesaId] = useState<string | null>(null)
+  const [updatingExtraPrecioId, setUpdatingExtraPrecioId] = useState<string | null>(null)
+  const [updatingItemRecargoId, setUpdatingItemRecargoId] = useState<string | null>(null)
 
   // ── Confirmaciones inline ──
   const [confirmDividirMesaId,  setConfirmDividirMesaId]  = useState<string | null>(null)
@@ -135,7 +111,7 @@ export default function MesasView() {
   // ── Resumen de pedidos por mesa ──
   const [resumenByMesa,      setResumenByMesa]      = useState<Record<string, ResumenMesa>>({})
   const [loadingResumen,     setLoadingResumen]     = useState(false)
-  const [expandedResumenIds, setExpandedResumenIds] = useState<Set<string>>(new Set())
+  const [selectedMesaId,     setSelectedMesaId]     = useState<string | null>(null)
 
   // ── Auto-limpiar mensajes globales tras 4s ──
   useEffect(() => {
@@ -224,14 +200,6 @@ export default function MesasView() {
     }), 10000)
   }, [])
 
-  const toggleResumenMesa = useCallback((mesaId: string) => {
-    setExpandedResumenIds(prev => {
-      const next = new Set(prev)
-      if (next.has(mesaId)) { next.delete(mesaId) } else { next.add(mesaId) }
-      return next
-    })
-  }, [])
-
   // IDs de mesas que pertenecen a una unión activa
   const mesasEnUnion = useMemo(() => {
     const set = new Set<string>()
@@ -262,6 +230,11 @@ export default function MesasView() {
   const reservasOrdenadas = useMemo(
     () => [...reservas].sort((a, b) => new Date(a.inicio_at).getTime() - new Date(b.inicio_at).getTime()),
     [reservas]
+  )
+
+  const selectedMesa = useMemo(
+    () => mesas.find(m => m.id === selectedMesaId) ?? null,
+    [mesas, selectedMesaId]
   )
 
   const resumen = useMemo(() => ({
@@ -448,7 +421,7 @@ export default function MesasView() {
     }
   }, [tenant?.id, splitPartsByMesa, usuario?.id, loadData, setMesaFeedback])
 
-  const handleCerrarCuentaMesa = useCallback(async (mesa: Mesa) => {
+  const handleCerrarCuentaMesa = useCallback(async (mesa: Mesa, metodo?: 'tarjeta' | 'efectivo') => {
     if (!tenant?.id) return
     setClosingCuentaMesaId(mesa.id)
     setGlobalError(null)
@@ -468,7 +441,7 @@ export default function MesasView() {
         result.warning ? 'error' : 'success',
         result.warning
           ? `Mesa liberada (pedido #${result.numeroPedido}). Atención: ${result.warning}`
-          : `Cuenta cerrada (pedido #${result.numeroPedido}). Factura ${accion}; mesa liberada.`
+          : `Cuenta cerrada (${metodo ?? 'sin método'}) (pedido #${result.numeroPedido}). Factura ${accion}; mesa liberada.`
       )
       await loadData()
     } catch (e: any) {
@@ -477,6 +450,42 @@ export default function MesasView() {
       setClosingCuentaMesaId(null)
     }
   }, [tenant?.id, usuario?.id, loadData, setMesaFeedback])
+
+  const handleUpdateExtraPrecio = useCallback(async (customizacionId: string, precioExtraGs: number) => {
+    if (!tenant?.id || !selectedMesa) return
+    setUpdatingExtraPrecioId(customizacionId)
+    try {
+      await mesasService.updateItemCustomizacionExtraPrecio({
+        tenantId: tenant.id,
+        customizacionId,
+        precioExtraGs,
+      })
+      setMesaFeedback(selectedMesa.id, 'success', `Extra actualizado a Gs. ${precioExtraGs.toLocaleString('es-PY')}.`)
+      await loadData()
+    } catch (e: any) {
+      setMesaFeedback(selectedMesa.id, 'error', e?.message ?? 'No se pudo actualizar el precio del extra.')
+    } finally {
+      setUpdatingExtraPrecioId(null)
+    }
+  }, [tenant?.id, selectedMesa, loadData, setMesaFeedback])
+
+  const handleUpdateItemRecargo = useCallback(async (itemPedidoId: string, extraGs: number) => {
+    if (!tenant?.id || !selectedMesa) return
+    setUpdatingItemRecargoId(itemPedidoId)
+    try {
+      await mesasService.updateItemPedidoRecargo({
+        tenantId: tenant.id,
+        itemPedidoId,
+        extraGs,
+      })
+      setMesaFeedback(selectedMesa.id, 'success', `Recargo de nota actualizado a Gs. ${extraGs.toLocaleString('es-PY')}.`)
+      await loadData()
+    } catch (e: any) {
+      setMesaFeedback(selectedMesa.id, 'error', e?.message ?? 'No se pudo actualizar el recargo de nota.')
+    } finally {
+      setUpdatingItemRecargoId(null)
+    }
+  }, [tenant?.id, selectedMesa, loadData, setMesaFeedback])
 
   const handleStartEdit = (mesa: Mesa) => {
     setConfirmDeleteMesaId(null)
@@ -535,6 +544,10 @@ export default function MesasView() {
       return { ...prev, [mesaId]: next }
     })
   }
+
+  const goToMesaPOS = useCallback((mesaId: string) => {
+    router.push(`${ROUTES.PROTECTED.POS}?mesaId=${mesaId}&from=${ROUTES.POS_FROM.MESAS_VIEW}`)
+  }, [router])
 
   // ── Render ────────────────────────────────────────────────────────────────────
 
@@ -638,11 +651,7 @@ export default function MesasView() {
                 const reservasMesa  = reservasActivasPorMesa.get(mesa.id) ?? []
                 const enUnion       = mesasEnUnion.has(mesa.id)
                 const feedback      = mesaFeedbackById[mesa.id]
-                const isSaving      = savingId === mesa.id
                 const isClosingMesa = closingCuentaMesaId === mesa.id
-                const isSplitting   = splittingMesaId === mesa.id
-                const partes        = splitPartsByMesa[mesa.id] ?? 2
-                const confirmDiv    = confirmDividirMesaId === mesa.id
                 const isEditing     = editingMesaId === mesa.id
                 const isSavingEdit  = savingEditId === mesa.id
                 const confirmDelete = confirmDeleteMesaId === mesa.id
@@ -651,7 +660,16 @@ export default function MesasView() {
                 return (
                   <article
                     key={mesa.id}
-                    className={`rounded-3xl border-[3px] p-5 shadow-sm flex flex-col gap-3 transition-colors ${ESTADO_BORDER[mesa.estado]} ${ESTADO_CARD_BG[mesa.estado]}`}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setSelectedMesaId(mesa.id)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
+                        setSelectedMesaId(mesa.id)
+                      }
+                    }}
+                    className={`rounded-3xl border-[3px] p-5 shadow-sm flex flex-col gap-3 transition-colors cursor-pointer ${ESTADO_BORDER[mesa.estado]} ${ESTADO_CARD_BG[mesa.estado]}`}
                   >
                     {/* Cabecera de tarjeta */}
                     <div className="flex items-start justify-between gap-3">
@@ -675,7 +693,10 @@ export default function MesasView() {
                         <div className="flex items-center gap-1">
                           <button
                             type="button"
-                            onClick={() => isEditing ? handleCancelEdit() : handleStartEdit(mesa)}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              isEditing ? handleCancelEdit() : handleStartEdit(mesa)
+                            }}
                             title={isEditing ? 'Cancelar edición' : 'Editar mesa'}
                             className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:text-blue-400 dark:hover:bg-blue-950/30 transition"
                           >
@@ -683,7 +704,11 @@ export default function MesasView() {
                           </button>
                           <button
                             type="button"
-                            onClick={() => { setEditingMesaId(null); setConfirmDeleteMesaId(mesa.id) }}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setEditingMesaId(null)
+                              setConfirmDeleteMesaId(mesa.id)
+                            }}
                             disabled={isDeleting}
                             title="Eliminar mesa"
                             className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition disabled:opacity-50"
@@ -780,7 +805,7 @@ export default function MesasView() {
                         </div>
                       </div>
                     ) : (
-                      /* ── Vista normal: reservas + resumen pedido + botones + CTA + división ── */
+                      /* ── Vista normal simplificada: reservas + acciones rápidas ── */
                       <>
                         {/* Reservas del día */}
                         {reservasMesa.length > 0 && (
@@ -796,227 +821,42 @@ export default function MesasView() {
                           </div>
                         )}
 
-                        {/* ── Resumen de pedido activo (solo mesas ocupadas) ── */}
-                        {mesa.estado === 'ocupada' && (() => {
-                          const resumen    = resumenByMesa[mesa.id]
-                          const isExpanded = expandedResumenIds.has(mesa.id)
-                          return (
-                            <div className="rounded-xl border border-red-200 dark:border-red-900/40 overflow-hidden">
-                              <button
-                                type="button"
-                                onClick={() => toggleResumenMesa(mesa.id)}
-                                className="w-full flex items-center justify-between gap-2 px-3 py-2 bg-red-50/80 dark:bg-red-950/20 text-left hover:bg-red-100/60 dark:hover:bg-red-950/30 transition"
-                              >
-                                <div className="flex items-center gap-1.5 min-w-0">
-                                  <ClipboardList className="w-3.5 h-3.5 shrink-0 text-red-600 dark:text-red-400" />
-                                  <span className="text-xs font-bold text-red-700 dark:text-red-300">Pedido activo</span>
-                                  {loadingResumen && !resumen && (
-                                    <Loader2 className="w-3 h-3 animate-spin text-red-400 shrink-0" />
-                                  )}
-                                  {resumen && (
-                                    <span className="text-[10px] text-red-500 dark:text-red-400 truncate">
-                                      · {resumen.total_items} {resumen.total_items === 1 ? 'item' : 'items'} · Gs. {resumen.total_acumulado.toLocaleString('es-PY')}
-                                    </span>
-                                  )}
-                                  {!loadingResumen && !resumen && (
-                                    <span className="text-[10px] text-gray-400">· Sin pedido registrado</span>
-                                  )}
-                                </div>
-                                <ChevronDown className={`w-3.5 h-3.5 shrink-0 text-red-400 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
-                              </button>
-
-                              {isExpanded && (
-                                <div className="px-3 py-2 bg-white/60 dark:bg-gray-900/40 space-y-1">
-                                  {loadingResumen && !resumen ? (
-                                    <ResumenPedidoSkeleton />
-                                  ) : !resumen ? (
-                                    <p className="text-[11px] text-gray-400 dark:text-gray-500 py-1 text-center">Sin pedido registrado en esta mesa</p>
-                                  ) : (
-                                    <>
-                                      {resumen.pedidos.map((pedido, pi) => (
-                                        <div key={pedido.id}>
-                                          {resumen.pedidos.length > 1 && (
-                                            <div className="flex items-center gap-1.5 mb-1 mt-1">
-                                              <span className="text-[10px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-                                                Pedido #{pedido.numero_pedido}
-                                              </span>
-                                              {pedido.estado_pedido === 'FACT' && (
-                                                <span className="text-[9px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/30 px-1.5 py-0.5 rounded-full">
-                                                  ✓ Cocina
-                                                </span>
-                                              )}
-                                            </div>
-                                          )}
-                                          <div className="space-y-0.5">
-                                            {pedido.items.map(item => (
-                                              <div key={item.id} className="flex items-start justify-between gap-2 py-0.5">
-                                                <span className="text-xs text-gray-700 dark:text-gray-300 flex-1 min-w-0">
-                                                  <span className="font-bold text-red-600 dark:text-red-400">{item.cantidad}×</span>{' '}
-                                                  <span className="truncate">{item.producto_nombre}</span>
-                                                  {item.notas && (
-                                                    <span className="block text-[10px] text-gray-400 leading-tight truncate">{item.notas}</span>
-                                                  )}
-                                                </span>
-                                                <span className="text-[11px] font-semibold text-gray-600 dark:text-gray-400 shrink-0 tabular-nums">
-                                                  Gs.{item.subtotal.toLocaleString('es-PY')}
-                                                </span>
-                                              </div>
-                                            ))}
-                                          </div>
-                                          {pi < resumen.pedidos.length - 1 && (
-                                            <hr className="border-red-100 dark:border-red-900/30 my-1.5" />
-                                          )}
-                                        </div>
-                                      ))}
-                                      <div className="flex items-center justify-between pt-1.5 border-t border-red-200 dark:border-red-900/40 mt-1">
-                                        <span className="text-xs font-bold text-red-700 dark:text-red-300">Total</span>
-                                        <span className="text-sm font-black text-red-700 dark:text-red-300 tabular-nums">
-                                          Gs.{resumen.total_acumulado.toLocaleString('es-PY')}
-                                        </span>
-                                      </div>
-                                    </>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          )
-                        })()}
-
-                        {/* Botones contextuales por estado */}
-                        <div className="flex flex-col gap-2">
-                          {mesa.estado === 'libre' && (
-                            <div className="grid grid-cols-3 gap-2">
-                              <button type="button" disabled={isSaving} onClick={() => setEstado(mesa.id, 'ocupada')} className={BTN_OCUPAR}>
-                                <CircleDot className="w-3.5 h-3.5 inline mr-1" />Ocupar
-                              </button>
-                              <button type="button" disabled={isSaving} onClick={() => setEstado(mesa.id, 'reservada')} className={BTN_RESERVAR}>
-                                <CalendarClock className="w-3.5 h-3.5 inline mr-1" />Reservar
-                              </button>
-                              <button type="button" disabled={isSaving} onClick={() => setEstado(mesa.id, 'bloqueada')} className={BTN_BLOQUEAR}>
-                                <Lock className="w-3.5 h-3.5 inline mr-1" />Bloquear
-                              </button>
-                            </div>
-                          )}
-                          {mesa.estado === 'ocupada' && (
-                            <div className="grid grid-cols-3 gap-2">
-                              <button
-                                type="button"
-                                disabled={isSaving || isClosingMesa}
-                                onClick={() => void handleCerrarCuentaMesa(mesa)}
-                                className="rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-700 px-3 py-2 text-xs font-semibold hover:bg-emerald-100 transition dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-300 dark:hover:bg-emerald-900/40 disabled:opacity-50"
-                              >
-                                {isClosingMesa ? (
-                                  <Loader2 className="w-3.5 h-3.5 inline mr-1 animate-spin" />
-                                ) : (
-                                  <CheckCircle2 className="w-3.5 h-3.5 inline mr-1" />
-                                )}
-                                Cerrar cuenta
-                              </button>
-                              <button type="button" disabled={isSaving} onClick={() => setEstado(mesa.id, 'libre')} className={BTN_LIBERAR}>
-                                <CheckCircle2 className="w-3.5 h-3.5 inline mr-1" />Liberar
-                              </button>
-                              <button type="button" disabled={isSaving} onClick={() => setEstado(mesa.id, 'bloqueada')} className={BTN_BLOQUEAR}>
-                                <Lock className="w-3.5 h-3.5 inline mr-1" />Bloquear
-                              </button>
-                            </div>
-                          )}
-                          {mesa.estado === 'reservada' && (
-                            <div className="grid grid-cols-3 gap-2">
-                              <button type="button" disabled={isSaving} onClick={() => setEstado(mesa.id, 'libre')} className={BTN_LIBERAR}>
-                                <CheckCircle2 className="w-3.5 h-3.5 inline mr-1" />Liberar
-                              </button>
-                              <button type="button" disabled={isSaving} onClick={() => setEstado(mesa.id, 'ocupada')} className={BTN_OCUPAR}>
-                                <CircleDot className="w-3.5 h-3.5 inline mr-1" />Ocupar
-                              </button>
-                              <button type="button" disabled={isSaving} onClick={() => setEstado(mesa.id, 'bloqueada')} className={BTN_BLOQUEAR}>
-                                <Lock className="w-3.5 h-3.5 inline mr-1" />Bloquear
-                              </button>
-                            </div>
-                          )}
-                          {mesa.estado === 'bloqueada' && (
-                            <button type="button" disabled={isSaving} onClick={() => setEstado(mesa.id, 'libre')} className={`w-full ${BTN_LIBERAR}`}>
-                              <CheckCircle2 className="w-3.5 h-3.5 inline mr-1" />Liberar mesa
-                            </button>
-                          )}
-                          {isSaving && (
-                            <p className="text-[11px] text-gray-400 dark:text-gray-500 text-center flex items-center justify-center gap-1">
-                              <Loader2 className="w-3 h-3 animate-spin" />Guardando…
-                            </p>
-                          )}
+                        <div className="grid grid-cols-3 gap-2">
+                          <button
+                            type="button"
+                            disabled={mesa.estado === 'bloqueada'}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              goToMesaPOS(mesa.id)
+                            }}
+                            className="rounded-xl bg-gray-900 dark:bg-gray-700 text-white text-xs font-semibold px-2.5 py-2 hover:opacity-90 transition disabled:opacity-40"
+                          >
+                            Tomar pedido
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setSelectedMesaId(mesa.id)
+                            }}
+                            className="rounded-xl border border-gray-200 dark:border-gray-700 text-xs font-semibold px-2.5 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition inline-flex items-center justify-center gap-1"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            Ver detalle
+                          </button>
+                          <button
+                            type="button"
+                            disabled={mesa.estado !== 'ocupada' || isClosingMesa}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              void handleCerrarCuentaMesa(mesa)
+                            }}
+                            className="rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-700 px-2.5 py-2 text-xs font-semibold hover:bg-emerald-100 transition dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-300 disabled:opacity-50 inline-flex items-center justify-center gap-1"
+                          >
+                            {isClosingMesa ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                            Cerrar cuenta
+                          </button>
                         </div>
-
-                        {/* CTA: Tomar pedido */}
-                        <button
-                          type="button"
-                          disabled={mesa.estado === 'bloqueada'}
-                          onClick={() => router.push(`${ROUTES.PROTECTED.POS}?mesaId=${mesa.id}&from=${ROUTES.POS_FROM.MESAS_VIEW}`)}
-                          className="w-full rounded-xl bg-gray-900 dark:bg-gray-700 text-white text-sm font-semibold px-3 py-2.5 hover:opacity-90 transition disabled:opacity-40 disabled:cursor-not-allowed"
-                        >
-                          Tomar pedido en esta mesa
-                        </button>
-
-                        {/* División de cuenta — solo cuando ocupada */}
-                        {mesa.estado === 'ocupada' && (
-                          <div className="rounded-xl border border-fuchsia-200 dark:border-fuchsia-900/50 bg-fuchsia-50/60 dark:bg-fuchsia-950/20 p-3">
-                            <div className="flex items-center justify-between gap-2 mb-2">
-                              <span className="flex items-center gap-1.5 text-xs font-semibold text-fuchsia-700 dark:text-fuchsia-400">
-                                <SplitSquareHorizontal className="w-3.5 h-3.5" />
-                                Dividir entre
-                              </span>
-                              <div className="flex items-center gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => adjustSplit(mesa.id, -1)}
-                                  disabled={partes <= 2 || confirmDiv || isSplitting}
-                                  className="w-7 h-7 rounded-lg border border-fuchsia-300 dark:border-fuchsia-700 bg-white dark:bg-gray-900 text-fuchsia-700 dark:text-fuchsia-300 flex items-center justify-center hover:bg-fuchsia-100 dark:hover:bg-fuchsia-900/40 transition disabled:opacity-40"
-                                >
-                                  <Minus className="w-3.5 h-3.5" />
-                                </button>
-                                <span className="w-8 text-center text-sm font-bold text-fuchsia-700 dark:text-fuchsia-300">{partes}</span>
-                                <button
-                                  type="button"
-                                  onClick={() => adjustSplit(mesa.id, 1)}
-                                  disabled={partes >= 12 || confirmDiv || isSplitting}
-                                  className="w-7 h-7 rounded-lg border border-fuchsia-300 dark:border-fuchsia-700 bg-white dark:bg-gray-900 text-fuchsia-700 dark:text-fuchsia-300 flex items-center justify-center hover:bg-fuchsia-100 dark:hover:bg-fuchsia-900/40 transition disabled:opacity-40"
-                                >
-                                  <Plus className="w-3.5 h-3.5" />
-                                </button>
-                                <span className="text-xs text-fuchsia-600 dark:text-fuchsia-400 font-medium">
-                                  {partes === 1 ? 'persona' : 'personas'}
-                                </span>
-                              </div>
-                            </div>
-                            {confirmDiv ? (
-                              <div className="flex gap-2 mt-1">
-                                <button
-                                  type="button"
-                                  onClick={() => handleDividirCuenta(mesa.id)}
-                                  disabled={isSplitting}
-                                  className="flex-1 rounded-lg bg-fuchsia-600 text-white text-xs font-semibold py-2 hover:bg-fuchsia-700 transition disabled:opacity-60 inline-flex items-center justify-center gap-1"
-                                >
-                                  {isSplitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
-                                  {isSplitting ? 'Dividiendo…' : `Sí, dividir en ${partes}`}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setConfirmDividirMesaId(null)}
-                                  disabled={isSplitting}
-                                  className="flex-1 rounded-lg border border-fuchsia-300 dark:border-fuchsia-700 text-fuchsia-700 dark:text-fuchsia-300 text-xs font-semibold py-2 hover:bg-fuchsia-100 dark:hover:bg-fuchsia-900/30 transition disabled:opacity-50"
-                                >
-                                  Cancelar
-                                </button>
-                              </div>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => setConfirmDividirMesaId(mesa.id)}
-                                className="w-full rounded-lg bg-fuchsia-600 text-white text-xs font-semibold py-2 hover:bg-fuchsia-700 transition"
-                              >
-                                Dividir cuenta en {partes} partes
-                              </button>
-                            )}
-                          </div>
-                        )}
 
                         {/* Feedback por mesa */}
                         {feedback && (
@@ -1031,6 +871,34 @@ export default function MesasView() {
               })}
             </section>
           )}
+
+          <DetalleMesaModal
+            mesa={selectedMesa}
+            reservasMesa={selectedMesa ? (reservasActivasPorMesa.get(selectedMesa.id) ?? []) : []}
+            resumenPedido={selectedMesa ? (resumenByMesa[selectedMesa.id] ?? null) : null}
+            loadingResumen={loadingResumen}
+            isSaving={selectedMesa ? savingId === selectedMesa.id : false}
+            isClosingMesa={selectedMesa ? closingCuentaMesaId === selectedMesa.id : false}
+            isSplitting={selectedMesa ? splittingMesaId === selectedMesa.id : false}
+            partes={selectedMesa ? (splitPartsByMesa[selectedMesa.id] ?? 2) : 2}
+            confirmDividir={selectedMesa ? confirmDividirMesaId === selectedMesa.id : false}
+            feedback={selectedMesa ? (mesaFeedbackById[selectedMesa.id] ?? null) : null}
+            onClose={() => {
+              setSelectedMesaId(null)
+              setConfirmDividirMesaId(null)
+            }}
+            onTomarPedido={goToMesaPOS}
+            onCerrarCuenta={handleCerrarCuentaMesa}
+            onSetEstado={setEstado}
+            onAdjustSplit={adjustSplit}
+            onRequestDividir={setConfirmDividirMesaId}
+            onCancelDividir={() => setConfirmDividirMesaId(null)}
+            onDividir={handleDividirCuenta}
+            onUpdateExtraPrecio={handleUpdateExtraPrecio}
+            updatingExtraId={updatingExtraPrecioId}
+            onUpdateItemRecargo={handleUpdateItemRecargo}
+            updatingItemId={updatingItemRecargoId}
+          />
 
           {/* ── Paneles inferiores ── */}
           <section className="grid grid-cols-1 xl:grid-cols-3 gap-4">
@@ -1072,7 +940,7 @@ export default function MesasView() {
               </button>
             </article>
 
-            {/* Panel: Unión de mesas */}
+            {/* Panel: Unión de mesas — comentado temporalmente
             <article className="rounded-3xl border border-white/40 dark:border-gray-800 bg-white/85 dark:bg-gray-900/70 p-5 space-y-3">
               <div className="flex items-center gap-2">
                 <GitMerge className="w-4 h-4 text-violet-500" />
@@ -1092,7 +960,6 @@ export default function MesasView() {
                 {savingId === 'union' ? 'Creando unión…' : `Unir ${unionSelection.length > 0 ? `${unionSelection.length} ` : ''}mesas seleccionadas`}
               </button>
 
-              {/* Uniones activas con confirm inline */}
               <div className="space-y-2">
                 {unionesActivas.map(union => {
                   const isClosing    = savingId === `close-${union.id}`
@@ -1125,8 +992,9 @@ export default function MesasView() {
                 })}
               </div>
             </article>
+            */}
 
-            {/* Panel: Mover pedido */}
+            {/* Panel: Mover pedido entre mesas — comentado temporalmente
             <article className="rounded-3xl border border-white/40 dark:border-gray-800 bg-white/85 dark:bg-gray-900/70 p-5 space-y-3">
               <div className="flex items-center gap-2">
                 <MoveHorizontal className="w-4 h-4 text-amber-500" />
@@ -1146,6 +1014,7 @@ export default function MesasView() {
                 </button>
               </div>
             </article>
+            */}
           </section>
 
           {/* ── Panel de reservas ── */}

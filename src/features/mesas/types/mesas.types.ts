@@ -65,6 +65,12 @@ export interface ItemResumenMesa {
   precio_unitario: number
   subtotal: number
   notas: string | null
+  customizaciones?: Array<{
+    id: string
+    tipo: 'extra' | 'removido' | 'modificado'
+    precio_extra: number
+    ingrediente_nombre: string | null
+  }>
 }
 
 export interface PedidoResumenMesa {

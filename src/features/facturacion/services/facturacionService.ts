@@ -14,6 +14,8 @@ interface VistaFacturaImpresionRow {
   pedido_id: string
   tenant_id: string
   numero_pedido: number
+  mesa_numero: number | null
+  saludo_final: string | null
   emisor_ruc: string | null
   emisor_razon_social: string | null
   emisor_direccion: string | null
@@ -45,6 +47,8 @@ function mapRowToFactura(row: VistaFacturaImpresionRow): FacturaParaImpresion {
     pedido_id: row.pedido_id,
     tenant_id: row.tenant_id,
     numero_pedido: row.numero_pedido,
+    mesa_numero: row.mesa_numero,
+    saludo_final: row.saludo_final ?? '¡Gracias por tu compra!',
 
     emisor: {
       ruc: row.emisor_ruc,

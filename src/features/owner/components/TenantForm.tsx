@@ -1,4 +1,5 @@
 import type { CreateTenantForm } from '../hooks/useCreateTenant'
+import Image from 'next/image'
 
 interface TenantFormProps {
   form: CreateTenantForm
@@ -157,9 +158,12 @@ export function TenantForm({ form, onChange, onSubmit, loading, error }: TenantF
             />
             {form.logo_url && (
               <div className="mt-2 flex items-center gap-3">
-                <img
+                <Image
                   src={form.logo_url}
                   alt="Preview del logo"
+                  width={40}
+                  height={40}
+                  unoptimized
                   className="w-10 h-10 rounded-lg object-cover border border-gray-200 dark:border-gray-600"
                   onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
                 />

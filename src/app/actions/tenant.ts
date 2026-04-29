@@ -12,6 +12,7 @@ export interface UpdateMyTenantData {
   ruc?: string
   razon_social?: string
   actividad_economica?: string
+  saludo_final?: string
 }
 
 /**
@@ -49,6 +50,26 @@ export async function updateMyTenant(data: UpdateMyTenantData) {
   if (data.ruc !== undefined) updatePayload.ruc = data.ruc.trim() || null
   if (data.razon_social !== undefined) updatePayload.razon_social = data.razon_social.trim() || null
   if (data.actividad_economica !== undefined) updatePayload.actividad_economica = data.actividad_economica.trim() || null
+  if (data.saludo_final !== undefined) {
+    const { data: tenantCurrent, error: tenantError } = await supabase
+      .from('tenants')
+      .select('config_impresion')
+      .eq('id', tenantId)
+      .eq('is_deleted', false)
+      .single()
+
+    if (tenantError || !tenantCurrent) return { error: 'No se pudo cargar configuración de impresión' }
+
+    const currentConfig =
+      tenantCurrent.config_impresion && typeof tenantCurrent.config_impresion === 'object'
+        ? (tenantCurrent.config_impresion as Record<string, unknown>)
+        : {}
+
+    updatePayload.config_impresion = {
+      ...currentConfig,
+      pie_ticket: data.saludo_final.trim() || '¡Gracias por tu compra!',
+    }
+  }
 
   const { error } = await supabase
     .from('tenants')
@@ -184,6 +205,38 @@ export async function toggleGestionMesas(enabled: boolean): Promise<{ error: str
   const { error } = await supabase
     .from('tenants')
     .update({ gestion_mesas: enabled, updated_at: new Date().toISOString() })
+    .eq('id', tenantId)
+    .eq('is_deleted', false)
+
+  if (error) return { error: 'Error al guardar. Intentalo nuevamente.' }
+  return { error: null }
+}
+
+/**
+ * Activa o desactiva el módulo de delivery para el tenant del admin en sesión.
+ * Solo administradores pueden cambiar esta configuración.
+ */
+export async function toggleDelivery(enabled: boolean): Promise<{ error: string | null }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'No hay sesión activa' }
+
+  const { data: usuario, error: usuarioError } = await supabase
+    .from('usuarios')
+    .select('id, tenant_id, rol')
+    .eq('auth_user_id', user.id)
+    .eq('is_deleted', false)
+    .single()
+
+  if (usuarioError || !usuario) return { error: 'Usuario no encontrado' }
+  if (usuario.rol !== 'admin') return { error: 'Solo el administrador puede cambiar esta configuración' }
+
+  const tenantId = usuario.tenant_id
+  if (!tenantId) return { error: 'Usuario sin negocio asignado' }
+
+  const { error } = await supabase
+    .from('tenants')
+    .update({ has_delivery: enabled, updated_at: new Date().toISOString() })
     .eq('id', tenantId)
     .eq('is_deleted', false)
 

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Image from 'next/image'
 import { Package, Mail, Phone, MapPin, Eye, Loader2, Trash2 } from 'lucide-react'
 import { toggleTenantStatus } from '@/app/actions/owner'
 import { DeleteTenantModal } from '@/features/owner/components/DeleteTenantModal'
@@ -76,9 +77,12 @@ export function TenantCard({ tenant, onStatusChange }: TenantCardProps) {
       <div className="flex items-start justify-between gap-3 pt-1">
         <div className="flex items-center gap-3 min-w-0">
           {tenant.logo_url && (
-            <img
+            <Image
               src={tenant.logo_url}
               alt={`Logo de ${tenant.nombre}`}
+              width={40}
+              height={40}
+              unoptimized
               className="w-10 h-10 rounded-lg object-cover border border-gray-200 dark:border-gray-600 shrink-0"
               onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
             />

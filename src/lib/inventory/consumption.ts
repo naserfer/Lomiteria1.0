@@ -398,6 +398,7 @@ export async function descontarIngredientesPorPedido({
       tipo: 'extra' | 'removido' | 'modificado'
       cantidad_original: number
       cantidad_ajustada: number
+      precio_extra: number
     }> = []
 
     for (const item of itemsConReceta) {
@@ -410,7 +411,10 @@ export async function descontarIngredientesPorPedido({
       )
       const extrasMap = new Map(
         (item.customization?.extras ?? []).map(
-          (x: { slug: string; quantityPerItem: number }) => [x.slug, x.quantityPerItem]
+          (x: { slug: string; quantityPerItem: number; unitPrice: number }) => [
+            x.slug,
+            { quantityPerItem: x.quantityPerItem, unitPrice: x.unitPrice },
+          ]
         )
       )
 
@@ -424,7 +428,8 @@ export async function descontarIngredientesPorPedido({
             ingrediente_id: ing.id,
             tipo: 'removido',
             cantidad_original: r.cantidad,
-            cantidad_ajustada: 0
+            cantidad_ajustada: 0,
+            precio_extra: 0,
           })
           continue
         }
@@ -432,14 +437,17 @@ export async function descontarIngredientesPorPedido({
         let cantidadItem = r.cantidad * item.cantidad
 
         if (extrasMap.has(ing.slug)) {
-          const extraPorItem = extrasMap.get(ing.slug)!
+          const extraConfig = extrasMap.get(ing.slug)!
+          const extraPorItem = extraConfig.quantityPerItem
+          const extraPrecioLinea = Math.max(0, extraPorItem * (extraConfig.unitPrice ?? 0) * item.cantidad)
           cantidadItem += extraPorItem * item.cantidad
           customizacionesBatch.push({
             item_pedido_id: item.id,
             ingrediente_id: ing.id,
             tipo: 'extra',
             cantidad_original: r.cantidad,
-            cantidad_ajustada: r.cantidad + extraPorItem
+            cantidad_ajustada: r.cantidad + extraPorItem,
+            precio_extra: extraPrecioLinea,
           })
         }
 
@@ -455,19 +463,22 @@ export async function descontarIngredientesPorPedido({
       }
 
       // Extras agregados que no estaban en la receta original
-      for (const [extraSlug, extraPorItem] of extrasMap.entries()) {
+      for (const [extraSlug, extraConfig] of extrasMap.entries()) {
+        const extraPorItem = extraConfig.quantityPerItem
         if (recipeSlugs.has(extraSlug) || extraPorItem <= 0) continue
         const ing = extraIngredientMap.get(extraSlug)
         if (!ing || !ing.controlar_stock) continue
 
         const cantidadItem = extraPorItem * item.cantidad
+        const extraPrecioLinea = Math.max(0, extraPorItem * (extraConfig.unitPrice ?? 0) * item.cantidad)
 
         customizacionesBatch.push({
           item_pedido_id: item.id,
           ingrediente_id: ing.id,
           tipo: 'extra',
           cantidad_original: 0,
-          cantidad_ajustada: extraPorItem
+          cantidad_ajustada: extraPorItem,
+          precio_extra: extraPrecioLinea,
         })
 
         if (ingredienteTotals.has(ing.id)) {

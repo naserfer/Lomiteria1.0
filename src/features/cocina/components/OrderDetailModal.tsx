@@ -147,12 +147,12 @@ export default function OrderDetailModal({
       })
       setLoading(false)
     })
-  }, [order?.id])
+  }, [order])
 
   useEffect(() => {
     if (!order) return
     itemsScrollRef.current?.scrollTo({ top: 0, behavior: 'auto' })
-  }, [order?.id])
+  }, [order])
 
   useEffect(() => {
     if (!order) return

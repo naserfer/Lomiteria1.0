@@ -788,7 +788,7 @@ export default function KitchenCanvas({
       const t = setTimeout(() => setDeliveryConfettiOk(false), 1700)
       return () => clearTimeout(t)
     }
-  }, [newDeliveryIdsKey])
+  }, [newDeliveryIds, newDeliveryIdsKey])
 
   useEffect(() => {
     const updateViewportType = () => {
