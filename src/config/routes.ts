@@ -44,6 +44,12 @@ export const ROUTES = {
     POS: 'pos',
   } as const,
 
+  /** Query param de origen al entrar al POS con mesa: determina a dónde vuelve el botón Back */
+  POS_FROM: {
+    MESAS_VIEW:  'mesas-view',   // Admin vino desde el panel /home/mesas
+    POS_PICKER:  'pos-picker',   // Cajero/admin vino desde el selector de mesas del POS
+  } as const,
+
   // Rutas de API (futuro)
   API: {
     AUTH: '/api/auth',

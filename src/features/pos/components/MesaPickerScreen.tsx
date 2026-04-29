@@ -1,12 +1,14 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Loader2, Table2, RefreshCw, ArrowRight,
   Lock, CircleDot, CheckCircle2, CalendarClock, ShoppingBag,
 } from 'lucide-react'
+import type { ResumenMesa } from '@/features/mesas/types/mesas.types'
 import { useTenant } from '@/contexts/TenantContext'
+import { createClient } from '@/lib/supabase/client'
 import { mesasService } from '@/features/mesas/services/mesasService'
 import { ROUTES } from '@/config/routes'
 import type { EstadoMesa, Mesa } from '@/features/mesas/types/mesas.types'
@@ -27,49 +29,49 @@ const ESTADO_CONFIG: Record<EstadoMesa, {
   tappable: boolean
 }> = {
   libre: {
-    border:    'border-emerald-300 dark:border-emerald-700',
-    bg:        'bg-white dark:bg-gray-900/80',
-    hover:     'hover:border-emerald-400 hover:shadow-emerald-100 dark:hover:shadow-emerald-900/30 active:scale-[0.97]',
-    badge:     'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
-    number:    'text-gray-900 dark:text-white',
+    border:    'border-emerald-600 dark:border-emerald-500',
+    bg:        'bg-emerald-50 dark:bg-emerald-950/30',
+    hover:     'hover:border-emerald-600 hover:shadow-emerald-200 dark:hover:shadow-emerald-900/30 active:scale-[0.97]',
+    badge:     'bg-emerald-600 text-white dark:bg-emerald-500 dark:text-white',
+    number:    'text-emerald-700 dark:text-emerald-300',
     label:     'Libre',
     cta:       'Tomar pedido',
-    ctaColor:  'text-emerald-600 dark:text-emerald-400',
+    ctaColor:  'text-emerald-700 dark:text-emerald-400',
     Icon:      CheckCircle2,
-    iconColor: 'text-emerald-500',
+    iconColor: 'text-emerald-600 dark:text-emerald-400',
     tappable:  true,
   },
   ocupada: {
-    border:    'border-orange-300 dark:border-orange-700',
-    bg:        'bg-white dark:bg-gray-900/80',
-    hover:     'hover:border-orange-400 hover:shadow-orange-100 dark:hover:shadow-orange-900/30 active:scale-[0.97]',
-    badge:     'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300',
-    number:    'text-gray-900 dark:text-white',
+    border:    'border-red-600 dark:border-red-500',
+    bg:        'bg-red-50 dark:bg-red-950/30',
+    hover:     'hover:border-red-600 hover:shadow-red-200 dark:hover:shadow-red-900/30 active:scale-[0.97]',
+    badge:     'bg-red-600 text-white dark:bg-red-500 dark:text-white',
+    number:    'text-red-700 dark:text-red-300',
     label:     'Ocupada',
     cta:       'Agregar al pedido',
-    ctaColor:  'text-orange-600 dark:text-orange-400',
+    ctaColor:  'text-red-700 dark:text-red-400',
     Icon:      CircleDot,
-    iconColor: 'text-orange-500',
+    iconColor: 'text-red-600 dark:text-red-400',
     tappable:  true,
   },
   reservada: {
-    border:    'border-blue-300 dark:border-blue-700',
-    bg:        'bg-white dark:bg-gray-900/80',
-    hover:     'hover:border-blue-400 hover:shadow-blue-100 dark:hover:shadow-blue-900/30 active:scale-[0.97]',
-    badge:     'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
-    number:    'text-gray-900 dark:text-white',
+    border:    'border-blue-600 dark:border-blue-500',
+    bg:        'bg-blue-50 dark:bg-blue-950/30',
+    hover:     'hover:border-blue-600 hover:shadow-blue-200 dark:hover:shadow-blue-900/30 active:scale-[0.97]',
+    badge:     'bg-blue-600 text-white dark:bg-blue-500 dark:text-white',
+    number:    'text-blue-700 dark:text-blue-300',
     label:     'Reservada',
     cta:       'Tomar pedido',
-    ctaColor:  'text-blue-600 dark:text-blue-400',
+    ctaColor:  'text-blue-700 dark:text-blue-400',
     Icon:      CalendarClock,
-    iconColor: 'text-blue-500',
+    iconColor: 'text-blue-600 dark:text-blue-400',
     tappable:  true,
   },
   bloqueada: {
     border:    'border-gray-200 dark:border-gray-800',
     bg:        'bg-gray-50 dark:bg-gray-900/40',
     hover:     '',
-    badge:     'bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-600',
+    badge:     'bg-gray-400 text-white dark:bg-gray-700 dark:text-gray-400',
     number:    'text-gray-300 dark:text-gray-700',
     label:     'Bloqueada',
     cta:       '',
@@ -91,10 +93,28 @@ export function MesaPickerScreen({ tenantId, onSinMesa }: MesaPickerScreenProps)
   const router = useRouter()
   const { darkMode } = useTenant()
 
-  const [mesas,        setMesas]        = useState<Mesa[]>([])
-  const [loading,      setLoading]      = useState(true)
-  const [refreshing,   setRefreshing]   = useState(false)
-  const [navigatingTo, setNavigatingTo] = useState<string | null>(null)
+  const [mesas,          setMesas]          = useState<Mesa[]>([])
+  const [loading,        setLoading]        = useState(true)
+  const [refreshing,     setRefreshing]     = useState(false)
+  const [navigatingTo,   setNavigatingTo]   = useState<string | null>(null)
+  const [resumenByMesa,  setResumenByMesa]  = useState<Record<string, ResumenMesa>>({})
+  const [loadingResumen, setLoadingResumen] = useState(false)
+
+  const fetchResumenes = useCallback(async (mesasData: Mesa[]) => {
+    const ocupadas = mesasData.filter(m => m.estado === 'ocupada')
+    if (ocupadas.length === 0) { setResumenByMesa({}); return }
+    setLoadingResumen(true)
+    try {
+      const data = await mesasService.getResumenPedidosMesas(tenantId, ocupadas)
+      const map: Record<string, ResumenMesa> = {}
+      data.forEach(r => { map[r.mesa_id] = r })
+      setResumenByMesa(map)
+    } catch {
+      // silencioso
+    } finally {
+      setLoadingResumen(false)
+    }
+  }, [tenantId])
 
   const fetchMesas = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true)
@@ -102,15 +122,42 @@ export function MesaPickerScreen({ tenantId, onSinMesa }: MesaPickerScreenProps)
     try {
       const data = await mesasService.listMesas(tenantId)
       setMesas(data)
+      void fetchResumenes(data)
     } catch {
       // silent — grid stays with stale data on refresh errors
     } finally {
       setLoading(false)
       setRefreshing(false)
     }
-  }, [tenantId])
+  }, [tenantId, fetchResumenes])
 
   useEffect(() => { void fetchMesas() }, [fetchMesas])
+
+  // ── Realtime ──────────────────────────────────────────────────────────────────
+
+  const mesasRef = useRef(mesas)
+  useEffect(() => { mesasRef.current = mesas }, [mesas])
+
+  useEffect(() => {
+    const supabase    = createClient()
+    const debounceRef = { current: null as ReturnType<typeof setTimeout> | null }
+
+    const refresh = () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+      debounceRef.current = setTimeout(() => void fetchResumenes(mesasRef.current), 600)
+    }
+
+    const channel = supabase
+      .channel(`mesas-resumen-picker-${tenantId}`)
+      .on('postgres_changes', { event: '*',      schema: 'public', table: 'pedidos',      filter: `tenant_id=eq.${tenantId}` }, refresh)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'items_pedido' }, refresh)
+      .subscribe()
+
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+      void supabase.removeChannel(channel)
+    }
+  }, [tenantId, fetchResumenes])
 
   const resumen = useMemo(() => ({
     libres:    mesas.filter(m => m.estado === 'libre').length,
@@ -121,7 +168,7 @@ export function MesaPickerScreen({ tenantId, onSinMesa }: MesaPickerScreenProps)
   const handleSelect = (mesaId: string) => {
     if (navigatingTo) return
     setNavigatingTo(mesaId)
-    router.push(`${ROUTES.PROTECTED.POS}?mesaId=${mesaId}`)
+    router.push(`${ROUTES.PROTECTED.POS}?mesaId=${mesaId}&from=${ROUTES.POS_FROM.POS_PICKER}`)
   }
 
   const isBusy = navigatingTo !== null
@@ -168,10 +215,10 @@ export function MesaPickerScreen({ tenantId, onSinMesa }: MesaPickerScreenProps)
           {/* Stats pills */}
           {!loading && mesas.length > 0 && (
             <div className="flex items-center gap-2 mt-2.5 flex-wrap">
-              <StatPill count={resumen.libres}    label="libres"    dot="bg-emerald-400" text="text-emerald-600 dark:text-emerald-400" />
-              <StatPill count={resumen.ocupadas}  label="ocupadas"  dot="bg-orange-400"  text="text-orange-600 dark:text-orange-400" />
+              <StatPill count={resumen.libres}    label="libres"    dot="bg-emerald-500" text="text-emerald-800 dark:text-emerald-300" bg="bg-emerald-100 dark:bg-emerald-900/40" />
+              <StatPill count={resumen.ocupadas}  label="ocupadas"  dot="bg-red-500"     text="text-red-800 dark:text-red-300"     bg="bg-red-100 dark:bg-red-900/40"     pulse={resumen.ocupadas > 0} />
               {resumen.reservadas > 0 && (
-                <StatPill count={resumen.reservadas} label="reservadas" dot="bg-blue-400" text="text-blue-600 dark:text-blue-400" />
+                <StatPill count={resumen.reservadas} label="reservadas" dot="bg-blue-500" text="text-blue-800 dark:text-blue-300" bg="bg-blue-100 dark:bg-blue-900/40" />
               )}
             </div>
           )}
@@ -216,7 +263,7 @@ export function MesaPickerScreen({ tenantId, onSinMesa }: MesaPickerScreenProps)
                     disabled={!cfg.tappable || isBusy}
                     onClick={() => handleSelect(mesa.id)}
                     className={[
-                      'relative rounded-2xl border-2 p-4 flex flex-col gap-0 text-left',
+                      'relative rounded-2xl border-[3px] p-4 flex flex-col gap-0 text-left',
                       'transition-all duration-150 select-none touch-manipulation',
                       'shadow-sm',
                       cfg.border,
@@ -261,6 +308,38 @@ export function MesaPickerScreen({ tenantId, onSinMesa }: MesaPickerScreenProps)
                     <p className="text-[11px] text-gray-400 dark:text-gray-600 mt-1">
                       {mesa.capacidad} pax
                     </p>
+
+                    {/* Resumen de pedido — solo ocupadas */}
+                    {mesa.estado === 'ocupada' && (() => {
+                      const resumen = resumenByMesa[mesa.id]
+                      if (loadingResumen && !resumen) {
+                        return (
+                          <div className="mt-2 pt-2 border-t border-red-200/60 dark:border-red-900/30 animate-pulse space-y-1">
+                            <div className="h-2.5 bg-red-100 dark:bg-red-900/30 rounded w-4/5" />
+                            <div className="h-2.5 bg-red-100 dark:bg-red-900/30 rounded w-3/5" />
+                            <div className="h-2.5 bg-red-200 dark:bg-red-900/40 rounded w-2/5 mt-1" />
+                          </div>
+                        )
+                      }
+                      if (!resumen) return null
+                      return (
+                        <div className="mt-2 pt-2 border-t border-red-200/60 dark:border-red-900/30 space-y-0.5">
+                          {resumen.pedidos.flatMap(p => p.items).slice(0, 3).map(item => (
+                            <p key={item.id} className="text-[10px] text-red-700 dark:text-red-300 leading-tight truncate">
+                              <span className="font-bold">{item.cantidad}×</span> {item.producto_nombre}
+                            </p>
+                          ))}
+                          {resumen.total_items > 3 && (
+                            <p className="text-[10px] text-red-400 dark:text-red-500">
+                              +{resumen.total_items - 3} más…
+                            </p>
+                          )}
+                          <p className="text-[11px] font-black text-red-700 dark:text-red-300 pt-0.5 tabular-nums">
+                            Gs.{resumen.total_acumulado.toLocaleString('es-PY')}
+                          </p>
+                        </div>
+                      )
+                    })()}
 
                     {/* CTA arrow — solo en mesas accionables */}
                     {cfg.tappable && !isNavigating && (
@@ -310,11 +389,17 @@ export function MesaPickerScreen({ tenantId, onSinMesa }: MesaPickerScreenProps)
 
 // ─── Auxiliar ─────────────────────────────────────────────────────────────────
 
-function StatPill({ count, label, dot, text }: { count: number; label: string; dot: string; text: string }) {
+function StatPill({ count, label, dot, text, bg, pulse }: {
+  count: number; label: string; dot: string; text: string; bg: string; pulse?: boolean
+}) {
   return (
-    <span className={`inline-flex items-center gap-1.5 text-[11px] font-semibold ${text}`}>
-      <span className={`w-2 h-2 rounded-full shrink-0 ${dot}`} />
-      {count} {label}
+    <span className={`inline-flex items-center gap-1.5 ${bg} px-3 py-1 rounded-full`}>
+      <span className={`relative flex w-2.5 h-2.5 shrink-0`}>
+        {pulse && <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-60 ${dot}`} />}
+        <span className={`relative inline-flex w-2.5 h-2.5 rounded-full ${dot}`} />
+      </span>
+      <span className={`text-sm font-black leading-none ${text}`}>{count}</span>
+      <span className={`text-[11px] font-semibold leading-none ${text}`}>{label}</span>
     </span>
   )
 }

@@ -1,32 +1,41 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Loader2, Table2, PlusCircle, Lock, CalendarClock, CheckCircle2,
   MoveHorizontal, GitMerge, Trash2, Minus, Plus, SplitSquareHorizontal,
   Link2, Phone, Users, MessageSquare, CircleDot, AlertTriangle, X, Pencil,
+  ChevronDown, ClipboardList,
 } from 'lucide-react'
 import { useTenant } from '@/contexts/TenantContext'
 import { ROUTES } from '@/config/routes'
+import { createClient } from '@/lib/supabase/client'
 import { mesasService } from '../services/mesasService'
 import { cerrarCuentaMesaService } from '../services/cerrarCuentaMesaService'
-import type { EstadoMesa, Mesa, MesaReserva } from '../types/mesas.types'
+import type { EstadoMesa, Mesa, MesaReserva, ResumenMesa } from '../types/mesas.types'
 
 // ─── Estilos por estado ────────────────────────────────────────────────────────
 
 const ESTADO_BADGE: Record<EstadoMesa, string> = {
-  libre:    'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-800',
-  ocupada:  'bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-900/30 dark:text-orange-300 dark:border-orange-800',
-  reservada:'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800',
-  bloqueada:'bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-900/30 dark:text-rose-300 dark:border-rose-800',
+  libre:    'bg-emerald-600 text-white border-emerald-600 dark:bg-emerald-500 dark:border-emerald-500',
+  ocupada:  'bg-red-600 text-white border-red-600 dark:bg-red-500 dark:border-red-500',
+  reservada:'bg-blue-600 text-white border-blue-600 dark:bg-blue-500 dark:border-blue-500',
+  bloqueada:'bg-gray-400 text-white border-gray-400 dark:bg-gray-600 dark:border-gray-600',
 }
 
 const ESTADO_BORDER: Record<EstadoMesa, string> = {
-  libre:    'border-emerald-200 dark:border-emerald-900/50',
-  ocupada:  'border-orange-200 dark:border-orange-900/50',
-  reservada:'border-blue-200 dark:border-blue-900/50',
-  bloqueada:'border-rose-200 dark:border-rose-900/50',
+  libre:    'border-emerald-500 dark:border-emerald-600',
+  ocupada:  'border-red-600 dark:border-red-600',
+  reservada:'border-blue-500 dark:border-blue-600',
+  bloqueada:'border-gray-400 dark:border-gray-700',
+}
+
+const ESTADO_CARD_BG: Record<EstadoMesa, string> = {
+  libre:    'bg-emerald-50/70 dark:bg-emerald-950/20',
+  ocupada:  'bg-red-50/70 dark:bg-red-950/20',
+  reservada:'bg-blue-50/50 dark:bg-blue-950/15',
+  bloqueada:'bg-gray-50/80 dark:bg-gray-900/70',
 }
 
 const ESTADO_LABEL: Record<EstadoMesa, string> = {
@@ -35,10 +44,29 @@ const ESTADO_LABEL: Record<EstadoMesa, string> = {
 
 // ─── Botones de acción por estado ─────────────────────────────────────────────
 
-const BTN_LIBERAR = 'rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-700 px-3 py-2 text-xs font-semibold hover:bg-emerald-100 transition dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-300 dark:hover:bg-emerald-900/40 disabled:opacity-50'
-const BTN_OCUPAR  = 'rounded-xl border border-orange-200 bg-orange-50 text-orange-700 px-3 py-2 text-xs font-semibold hover:bg-orange-100 transition dark:border-orange-800 dark:bg-orange-900/20 dark:text-orange-300 dark:hover:bg-orange-900/40 disabled:opacity-50'
-const BTN_RESERVAR= 'rounded-xl border border-blue-200 bg-blue-50 text-blue-700 px-3 py-2 text-xs font-semibold hover:bg-blue-100 transition dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-300 dark:hover:bg-blue-900/40 disabled:opacity-50'
-const BTN_BLOQUEAR= 'rounded-xl border border-rose-200 bg-rose-50 text-rose-700 px-3 py-2 text-xs font-semibold hover:bg-rose-100 transition dark:border-rose-800 dark:bg-rose-900/20 dark:text-rose-300 dark:hover:bg-rose-900/40 disabled:opacity-50'
+const BTN_LIBERAR = 'rounded-xl border border-emerald-300 bg-emerald-100 text-emerald-800 px-3 py-2 text-xs font-semibold hover:bg-emerald-200 transition dark:border-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300 dark:hover:bg-emerald-900/50 disabled:opacity-50'
+const BTN_OCUPAR  = 'rounded-xl border border-red-300 bg-red-100 text-red-800 px-3 py-2 text-xs font-semibold hover:bg-red-200 transition dark:border-red-700 dark:bg-red-900/30 dark:text-red-300 dark:hover:bg-red-900/50 disabled:opacity-50'
+const BTN_RESERVAR= 'rounded-xl border border-blue-300 bg-blue-100 text-blue-800 px-3 py-2 text-xs font-semibold hover:bg-blue-200 transition dark:border-blue-700 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-900/50 disabled:opacity-50'
+const BTN_BLOQUEAR= 'rounded-xl border border-gray-300 bg-gray-100 text-gray-700 px-3 py-2 text-xs font-semibold hover:bg-gray-200 transition dark:border-gray-600 dark:bg-gray-800/50 dark:text-gray-300 dark:hover:bg-gray-800 disabled:opacity-50'
+
+// ─── Skeleton resumen de pedido ───────────────────────────────────────────────
+
+function ResumenPedidoSkeleton() {
+  return (
+    <div className="space-y-2 py-1 animate-pulse">
+      {([75, 55, 65] as const).map((w, i) => (
+        <div key={i} className="flex items-center justify-between gap-2">
+          <div className="h-3 bg-red-100 dark:bg-red-900/30 rounded" style={{ width: `${w}%` }} />
+          <div className="h-3 bg-red-100 dark:bg-red-900/30 rounded w-16 shrink-0" />
+        </div>
+      ))}
+      <div className="flex items-center justify-between pt-1 border-t border-red-100 dark:border-red-900/30 mt-1">
+        <div className="h-3 bg-red-200 dark:bg-red-900/40 rounded w-10" />
+        <div className="h-3 bg-red-200 dark:bg-red-900/40 rounded w-20" />
+      </div>
+    </div>
+  )
+}
 
 // ─── Componente ───────────────────────────────────────────────────────────────
 
@@ -104,6 +132,11 @@ export default function MesasView() {
   const [confirmDeleteMesaId, setConfirmDeleteMesaId] = useState<string | null>(null)
   const [deletingMesaId,      setDeletingMesaId]      = useState<string | null>(null)
 
+  // ── Resumen de pedidos por mesa ──
+  const [resumenByMesa,      setResumenByMesa]      = useState<Record<string, ResumenMesa>>({})
+  const [loadingResumen,     setLoadingResumen]     = useState(false)
+  const [expandedResumenIds, setExpandedResumenIds] = useState<Set<string>>(new Set())
+
   // ── Auto-limpiar mensajes globales tras 4s ──
   useEffect(() => {
     if (!globalError && !globalSuccess) return
@@ -112,6 +145,23 @@ export default function MesasView() {
   }, [globalError, globalSuccess])
 
   // ── Carga de datos ────────────────────────────────────────────────────────────
+
+  const loadResumenes = useCallback(async (mesasData: Mesa[]) => {
+    if (!tenant?.id) return
+    const ocupadas = mesasData.filter(m => m.estado === 'ocupada')
+    if (ocupadas.length === 0) { setResumenByMesa({}); return }
+    setLoadingResumen(true)
+    try {
+      const data = await mesasService.getResumenPedidosMesas(tenant.id, ocupadas)
+      const map: Record<string, ResumenMesa> = {}
+      data.forEach(r => { map[r.mesa_id] = r })
+      setResumenByMesa(map)
+    } catch {
+      // silencioso — la vista de la mesa sigue funcionando sin el resumen
+    } finally {
+      setLoadingResumen(false)
+    }
+  }, [tenant?.id])
 
   const loadData = useCallback(async () => {
     if (!tenant?.id) return
@@ -125,14 +175,42 @@ export default function MesasView() {
       setReservas(reservasData)
       const unions = await mesasService.listUnionesActivas(tenant.id).catch(() => [])
       setUnionesActivas(unions.map(u => ({ id: u.id, codigo: u.codigo, mesas: u.mesas })))
+      void loadResumenes(mesasData)
     } catch (e: any) {
       setGlobalError(e?.message ?? 'No se pudo cargar el panel de mesas.')
     } finally {
       setLoading(false)
     }
-  }, [tenant?.id])
+  }, [tenant?.id, loadResumenes])
 
   useEffect(() => { void loadData() }, [loadData])
+
+  // ── Realtime: re-fetch resúmenes cuando lleguen nuevos items/pedidos ──────────
+
+  const mesasRef = useRef(mesas)
+  useEffect(() => { mesasRef.current = mesas }, [mesas])
+
+  useEffect(() => {
+    if (!tenant?.id) return
+    const supabase  = createClient()
+    const debounceRef = { current: null as ReturnType<typeof setTimeout> | null }
+
+    const refresh = () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+      debounceRef.current = setTimeout(() => void loadResumenes(mesasRef.current), 600)
+    }
+
+    const channel = supabase
+      .channel(`mesas-resumen-view-${tenant.id}`)
+      .on('postgres_changes', { event: '*',      schema: 'public', table: 'pedidos',      filter: `tenant_id=eq.${tenant.id}` }, refresh)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'items_pedido' }, refresh)
+      .subscribe()
+
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+      void supabase.removeChannel(channel)
+    }
+  }, [tenant?.id, loadResumenes])
 
   // ── Helpers derivados ─────────────────────────────────────────────────────────
 
@@ -144,6 +222,14 @@ export default function MesasView() {
       delete next[mesaId]
       return next
     }), 10000)
+  }, [])
+
+  const toggleResumenMesa = useCallback((mesaId: string) => {
+    setExpandedResumenIds(prev => {
+      const next = new Set(prev)
+      if (next.has(mesaId)) { next.delete(mesaId) } else { next.add(mesaId) }
+      return next
+    })
   }, [])
 
   // IDs de mesas que pertenecen a una unión activa
@@ -565,7 +651,7 @@ export default function MesasView() {
                 return (
                   <article
                     key={mesa.id}
-                    className={`rounded-3xl border-2 bg-white/85 dark:bg-gray-900/70 p-5 shadow-sm flex flex-col gap-3 transition-colors ${ESTADO_BORDER[mesa.estado]}`}
+                    className={`rounded-3xl border-[3px] p-5 shadow-sm flex flex-col gap-3 transition-colors ${ESTADO_BORDER[mesa.estado]} ${ESTADO_CARD_BG[mesa.estado]}`}
                   >
                     {/* Cabecera de tarjeta */}
                     <div className="flex items-start justify-between gap-3">
@@ -694,7 +780,7 @@ export default function MesasView() {
                         </div>
                       </div>
                     ) : (
-                      /* ── Vista normal: reservas + botones + CTA + división ── */
+                      /* ── Vista normal: reservas + resumen pedido + botones + CTA + división ── */
                       <>
                         {/* Reservas del día */}
                         {reservasMesa.length > 0 && (
@@ -709,6 +795,92 @@ export default function MesasView() {
                             ))}
                           </div>
                         )}
+
+                        {/* ── Resumen de pedido activo (solo mesas ocupadas) ── */}
+                        {mesa.estado === 'ocupada' && (() => {
+                          const resumen    = resumenByMesa[mesa.id]
+                          const isExpanded = expandedResumenIds.has(mesa.id)
+                          return (
+                            <div className="rounded-xl border border-red-200 dark:border-red-900/40 overflow-hidden">
+                              <button
+                                type="button"
+                                onClick={() => toggleResumenMesa(mesa.id)}
+                                className="w-full flex items-center justify-between gap-2 px-3 py-2 bg-red-50/80 dark:bg-red-950/20 text-left hover:bg-red-100/60 dark:hover:bg-red-950/30 transition"
+                              >
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  <ClipboardList className="w-3.5 h-3.5 shrink-0 text-red-600 dark:text-red-400" />
+                                  <span className="text-xs font-bold text-red-700 dark:text-red-300">Pedido activo</span>
+                                  {loadingResumen && !resumen && (
+                                    <Loader2 className="w-3 h-3 animate-spin text-red-400 shrink-0" />
+                                  )}
+                                  {resumen && (
+                                    <span className="text-[10px] text-red-500 dark:text-red-400 truncate">
+                                      · {resumen.total_items} {resumen.total_items === 1 ? 'item' : 'items'} · Gs. {resumen.total_acumulado.toLocaleString('es-PY')}
+                                    </span>
+                                  )}
+                                  {!loadingResumen && !resumen && (
+                                    <span className="text-[10px] text-gray-400">· Sin pedido registrado</span>
+                                  )}
+                                </div>
+                                <ChevronDown className={`w-3.5 h-3.5 shrink-0 text-red-400 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
+                              </button>
+
+                              {isExpanded && (
+                                <div className="px-3 py-2 bg-white/60 dark:bg-gray-900/40 space-y-1">
+                                  {loadingResumen && !resumen ? (
+                                    <ResumenPedidoSkeleton />
+                                  ) : !resumen ? (
+                                    <p className="text-[11px] text-gray-400 dark:text-gray-500 py-1 text-center">Sin pedido registrado en esta mesa</p>
+                                  ) : (
+                                    <>
+                                      {resumen.pedidos.map((pedido, pi) => (
+                                        <div key={pedido.id}>
+                                          {resumen.pedidos.length > 1 && (
+                                            <div className="flex items-center gap-1.5 mb-1 mt-1">
+                                              <span className="text-[10px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+                                                Pedido #{pedido.numero_pedido}
+                                              </span>
+                                              {pedido.estado_pedido === 'FACT' && (
+                                                <span className="text-[9px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/30 px-1.5 py-0.5 rounded-full">
+                                                  ✓ Cocina
+                                                </span>
+                                              )}
+                                            </div>
+                                          )}
+                                          <div className="space-y-0.5">
+                                            {pedido.items.map(item => (
+                                              <div key={item.id} className="flex items-start justify-between gap-2 py-0.5">
+                                                <span className="text-xs text-gray-700 dark:text-gray-300 flex-1 min-w-0">
+                                                  <span className="font-bold text-red-600 dark:text-red-400">{item.cantidad}×</span>{' '}
+                                                  <span className="truncate">{item.producto_nombre}</span>
+                                                  {item.notas && (
+                                                    <span className="block text-[10px] text-gray-400 leading-tight truncate">{item.notas}</span>
+                                                  )}
+                                                </span>
+                                                <span className="text-[11px] font-semibold text-gray-600 dark:text-gray-400 shrink-0 tabular-nums">
+                                                  Gs.{item.subtotal.toLocaleString('es-PY')}
+                                                </span>
+                                              </div>
+                                            ))}
+                                          </div>
+                                          {pi < resumen.pedidos.length - 1 && (
+                                            <hr className="border-red-100 dark:border-red-900/30 my-1.5" />
+                                          )}
+                                        </div>
+                                      ))}
+                                      <div className="flex items-center justify-between pt-1.5 border-t border-red-200 dark:border-red-900/40 mt-1">
+                                        <span className="text-xs font-bold text-red-700 dark:text-red-300">Total</span>
+                                        <span className="text-sm font-black text-red-700 dark:text-red-300 tabular-nums">
+                                          Gs.{resumen.total_acumulado.toLocaleString('es-PY')}
+                                        </span>
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })()}
 
                         {/* Botones contextuales por estado */}
                         <div className="flex flex-col gap-2">
@@ -777,7 +949,7 @@ export default function MesasView() {
                         <button
                           type="button"
                           disabled={mesa.estado === 'bloqueada'}
-                          onClick={() => router.push(`${ROUTES.PROTECTED.POS}?mesaId=${mesa.id}`)}
+                          onClick={() => router.push(`${ROUTES.PROTECTED.POS}?mesaId=${mesa.id}&from=${ROUTES.POS_FROM.MESAS_VIEW}`)}
                           className="w-full rounded-xl bg-gray-900 dark:bg-gray-700 text-white text-sm font-semibold px-3 py-2.5 hover:opacity-90 transition disabled:opacity-40 disabled:cursor-not-allowed"
                         >
                           Tomar pedido en esta mesa

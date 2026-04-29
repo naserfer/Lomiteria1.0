@@ -57,3 +57,28 @@ export interface PedidoDivision {
   created_by: string | null
   created_at: string
 }
+
+export interface ItemResumenMesa {
+  id: string
+  producto_nombre: string
+  cantidad: number
+  precio_unitario: number
+  subtotal: number
+  notas: string | null
+}
+
+export interface PedidoResumenMesa {
+  id: string
+  numero_pedido: number
+  estado_pedido: 'EDIT' | 'FACT'
+  total: number
+  created_at: string
+  items: ItemResumenMesa[]
+}
+
+export interface ResumenMesa {
+  mesa_id: string
+  pedidos: PedidoResumenMesa[]
+  total_items: number
+  total_acumulado: number
+}
