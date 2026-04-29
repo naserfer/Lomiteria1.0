@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
+import Image from 'next/image'
 import { Save, Mail, Phone, MapPin, Building2, FileText, Upload, Loader2, LayoutGrid } from 'lucide-react'
 import { useTenant } from '@/contexts/TenantContext'
 import { updateMyTenant, uploadLogoMyTenant, toggleGestionMesas, toggleDelivery } from '@/app/actions/tenant'
@@ -226,10 +227,13 @@ export function ConfiguracionView() {
               <div className="mt-3 flex items-center gap-3">
                 {form.logo_url ? (
                   <>
-                    <img
+                    <Image
                       key={`${form.logo_url}-${previewKey}`}
                       src={`${form.logo_url}${form.logo_url.includes('?') ? '&' : '?'}t=${previewKey}`}
                       alt="Vista previa del local"
+                      width={80}
+                      height={80}
+                      unoptimized
                       className="w-20 h-20 rounded-xl object-cover border border-gray-200 dark:border-gray-600 bg-gray-100 dark:bg-gray-800"
                       onError={(e) => {
                         const el = e.currentTarget
@@ -440,7 +444,7 @@ export function ConfiguracionView() {
             <div className="min-w-0">
               <p className="text-sm font-semibold text-gray-900 dark:text-white">Servicio de Delivery</p>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                Muestra la opción "Delivery" al tomar pedidos en el POS. Desactivado = solo Comer aquí y Para llevar.
+                Muestra la opción &quot;Delivery&quot; al tomar pedidos en el POS. Desactivado = solo Comer aquí y Para llevar.
               </p>
             </div>
             <button

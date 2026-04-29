@@ -200,7 +200,7 @@ export function DetalleMesaModal({
         Liberar mesa
       </button>
     )
-  }, [mesa, isSaving, isClosingMesa, onSetEstado, onCerrarCuenta])
+  }, [mesa, isSaving, onSetEstado])
 
   if (!mounted || !mesa) return null
 
