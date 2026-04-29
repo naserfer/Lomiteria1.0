@@ -35,6 +35,8 @@ export interface Tenant {
   puntos_retorno_pct?: number
   /** Módulo de gestión de mesas habilitado para este tenant. */
   gestion_mesas?: boolean
+  /** Módulo de delivery habilitado para este tenant. */
+  has_delivery?: boolean
 }
 
 interface Usuario {
@@ -61,6 +63,8 @@ interface TenantContextType {
   isTenantActive: boolean
   /** El tenant tiene habilitado el módulo de gestión de mesas. */
   hasMesas: boolean
+  /** El tenant tiene habilitado el módulo de delivery. */
+  hasDelivery: boolean
   /** Vuelve a cargar usuario + tenant desde Supabase (p. ej. tras cambiar configuración). */
   reloadTenant: () => Promise<void>
 }
@@ -132,7 +136,8 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
             extra_precio_max_estandar,
             extra_precio_min_proteina,
             puntos_retorno_pct,
-            gestion_mesas
+            gestion_mesas,
+            has_delivery
           )
         `)
         .eq('auth_user_id', authUserId)
@@ -251,6 +256,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
     isRepartidor: usuario?.rol === 'repartidor',
     isTenantActive: tenant?.activo ?? true,
     hasMesas: tenant?.gestion_mesas ?? false,
+    hasDelivery: tenant?.has_delivery ?? false,
     reloadTenant,
   }
 

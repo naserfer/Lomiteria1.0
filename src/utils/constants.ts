@@ -33,3 +33,13 @@ export type ThemeMode = keyof typeof THEME_CONFIG
  * Cuando habiliten impresión/facturación → cambiar a true.
  */
 export const POS_FACTURA_MODAL_ENABLED = false
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Ajustes a medida por tenant
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Ajustes a medida para Oriental 8.
+ * Si el tenant cambia de ID, actualizar solo este string.
+ */
+export const TENANT_ID_ORIENTAL = '565c0876-2235-4e7c-bb54-89c466fe4583'

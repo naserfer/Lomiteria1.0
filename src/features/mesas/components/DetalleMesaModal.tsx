@@ -205,18 +205,29 @@ export function DetalleMesaModal({
   if (!mounted || !mesa) return null
 
   return createPortal(
-    <div className="fixed inset-0 z-[220] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="detalle-mesa-title">
+    <div
+      className="fixed inset-0 z-[220] flex items-center justify-center"
+      style={{
+        paddingTop:    'max(0.75rem, env(safe-area-inset-top,    0.75rem))',
+        paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom, 0.75rem))',
+        paddingLeft:   'max(0.75rem, env(safe-area-inset-left,   0.75rem))',
+        paddingRight:  'max(0.75rem, env(safe-area-inset-right,  0.75rem))',
+      }}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="detalle-mesa-title"
+    >
       <div className="absolute inset-0 bg-black/45 backdrop-blur-sm" onClick={onClose} aria-hidden="true" />
 
-      <div className="relative w-full max-w-4xl max-h-[94vh] rounded-3xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-2xl overflow-hidden flex flex-col">
-        <div className="flex items-start justify-between gap-3 border-b border-gray-100 dark:border-gray-800 px-5 py-4">
+      <div className="relative w-full max-w-4xl max-h-full rounded-3xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-2xl overflow-hidden flex flex-col">
+        <div className="flex items-start justify-between gap-3 border-b border-gray-100 dark:border-gray-800 px-4 sm:px-5 py-3 sm:py-4">
           <div>
             <p className="text-[11px] uppercase tracking-widest text-gray-400">Detalle de mesa</p>
-            <h2 id="detalle-mesa-title" className="text-4xl font-black mt-1">Mesa #{mesa.numero}</h2>
-            <p className="text-sm text-gray-500 mt-1">{mesa.nombre?.trim() || 'Sin alias'} · {mesa.capacidad} pax</p>
+            <h2 id="detalle-mesa-title" className="text-2xl sm:text-4xl font-black mt-0.5 sm:mt-1">Mesa #{mesa.numero}</h2>
+            <p className="text-xs sm:text-sm text-gray-500 mt-0.5 sm:mt-1">{mesa.nombre?.trim() || 'Sin alias'} · {mesa.capacidad} pax</p>
           </div>
-          <div className="flex items-center gap-2">
-            <span className={`inline-flex items-center rounded-full border px-3 py-1.5 text-sm font-semibold ${ESTADO_BADGE[mesa.estado]}`}>
+          <div className="flex items-center gap-2 shrink-0">
+            <span className={`inline-flex items-center rounded-full border px-2.5 py-1 sm:px-3 sm:py-1.5 text-xs sm:text-sm font-semibold ${ESTADO_BADGE[mesa.estado]}`}>
               {ESTADO_LABEL[mesa.estado]}
             </span>
             <button type="button" onClick={onClose} className="p-2 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 dark:hover:text-gray-200 dark:hover:bg-gray-800 transition" aria-label="Cerrar detalle">
@@ -225,7 +236,9 @@ export function DetalleMesaModal({
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+        <div className="flex-1 overflow-y-auto overscroll-contain px-4 sm:px-6 py-4 sm:py-5 space-y-4 sm:space-y-5"
+          style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom, 1rem))' }}
+        >
           <div className={`grid grid-cols-1 ${showCerrarCuenta ? 'md:grid-cols-3' : 'md:grid-cols-2'} gap-2`}>
             <button type="button" disabled={mesa.estado === 'bloqueada'} onClick={() => onTomarPedido(mesa.id)} className="rounded-xl bg-gray-900 dark:bg-gray-700 text-white text-sm font-semibold px-3 py-2.5 disabled:opacity-40">
               Tomar pedido

@@ -940,7 +940,7 @@ export default function MesasView() {
               </button>
             </article>
 
-            {/* Panel: Unión de mesas */}
+            {/* Panel: Unión de mesas — comentado temporalmente
             <article className="rounded-3xl border border-white/40 dark:border-gray-800 bg-white/85 dark:bg-gray-900/70 p-5 space-y-3">
               <div className="flex items-center gap-2">
                 <GitMerge className="w-4 h-4 text-violet-500" />
@@ -960,7 +960,6 @@ export default function MesasView() {
                 {savingId === 'union' ? 'Creando unión…' : `Unir ${unionSelection.length > 0 ? `${unionSelection.length} ` : ''}mesas seleccionadas`}
               </button>
 
-              {/* Uniones activas con confirm inline */}
               <div className="space-y-2">
                 {unionesActivas.map(union => {
                   const isClosing    = savingId === `close-${union.id}`
@@ -993,8 +992,9 @@ export default function MesasView() {
                 })}
               </div>
             </article>
+            */}
 
-            {/* Panel: Mover pedido */}
+            {/* Panel: Mover pedido entre mesas — comentado temporalmente
             <article className="rounded-3xl border border-white/40 dark:border-gray-800 bg-white/85 dark:bg-gray-900/70 p-5 space-y-3">
               <div className="flex items-center gap-2">
                 <MoveHorizontal className="w-4 h-4 text-amber-500" />
@@ -1014,6 +1014,7 @@ export default function MesasView() {
                 </button>
               </div>
             </article>
+            */}
           </section>
 
           {/* ── Panel de reservas ── */}

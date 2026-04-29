@@ -48,6 +48,7 @@ interface Props {
   isProcessing?: boolean
   darkMode?: boolean
   onEditItem?: (itemId: string) => void
+  isMesaOrder?: boolean
 }
 
 export default function Cart({
@@ -55,9 +56,10 @@ export default function Cart({
   onConfirmOrder,
   isProcessing,
   darkMode,
-  onEditItem
+  onEditItem,
+  isMesaOrder = false,
 }: Props) {
-  const { tenant } = useTenant()
+  const { tenant, hasDelivery } = useTenant()
   const { items, cliente, tipo, removeItem, updateQuantity, getTotal, getTotalPuntos, setTipo, upsertSauceItem } = useCartStore()
   const [saucesOpen, setSaucesOpen] = useState(false)
   const orderTypeInactiveClasses = darkMode
@@ -73,6 +75,11 @@ export default function Cart({
   const retornoPct = normalizePuntosRetornoPct(tenant?.puntos_retorno_pct)
   const puntos = getTotalPuntos(retornoPct)
   const sauceItems = useMemo(() => items.filter((i) => i.grupo === 'salsa'), [items])
+  const availableOrderTypes = useMemo(
+    () => ORDER_TYPES.filter(o => o.value !== 'delivery' || (hasDelivery && !isMesaOrder)),
+    [hasDelivery, isMesaOrder]
+  )
+
   const saucesInitialQty = useMemo(() => {
     const map: Record<string, number> = {}
     sauceItems.forEach((i) => {
@@ -328,8 +335,8 @@ export default function Cart({
           {/* Tipo de pedido - compacto */}
           <div className="space-y-1">
             <div className={`text-[10px] font-semibold ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Tipo:</div>
-            <div className="grid grid-cols-3 gap-1.5">
-              {ORDER_TYPES.map((option) => {
+            <div className={`grid gap-1.5 ${availableOrderTypes.length === 3 ? 'grid-cols-3' : 'grid-cols-2'}`}>
+              {availableOrderTypes.map((option) => {
                 const isActive = tipo === option.value
                 const helperColor = isActive
                   ? 'text-white/90'

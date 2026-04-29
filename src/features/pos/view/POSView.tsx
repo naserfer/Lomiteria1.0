@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import { LayoutDashboard, FileText, Loader2, ShoppingCart, Search, Gift, Printer, QrCode, X, ExternalLink, Copy, Check, Table2, CheckCircle2 } from 'lucide-react'
+import { LayoutDashboard, FileText, Loader2, ShoppingCart, Search, Gift, Printer, QrCode, X, ExternalLink, Copy, Check, Table2, CheckCircle2, ClipboardList } from 'lucide-react'
 import { useCartStore } from '@/store/cartStore'
 import { useTenant } from '@/contexts/TenantContext'
 import { createClient } from '@/lib/supabase/client'
@@ -30,6 +30,10 @@ import CanjePuntosModal from '../components/CanjePuntosModal'
 import { ReprintPOSModal } from '../components/ReprintPOSModal'
 import { AppFooter } from '@/components/layout/AppFooter'
 import { cerrarCuentaMesaService } from '@/features/mesas/services/cerrarCuentaMesaService'
+import { mesasService } from '@/features/mesas/services/mesasService'
+import { DetalleMesaModal } from '@/features/mesas/components/DetalleMesaModal'
+import type { Mesa, ResumenMesa } from '@/features/mesas/types/mesas.types'
+import { TENANT_ID_ORIENTAL } from '@/utils/constants'
 
 export default function POSView() {
   const searchParams = useSearchParams()
@@ -46,8 +50,15 @@ export default function POSView() {
   const [cartaQrCopied, setCartaQrCopied] = useState(false)
   const [mesaLabel, setMesaLabel] = useState<string | null>(null)
   const [isClosingMesaAccount, setIsClosingMesaAccount] = useState(false)
+  const [mesaObj, setMesaObj] = useState<Mesa | null>(null)
+  const [detalleMesaOpen, setDetalleMesaOpen] = useState(false)
+  const [resumenMesa, setResumenMesa] = useState<ResumenMesa | null>(null)
+  const [loadingResumenMesa, setLoadingResumenMesa] = useState(false)
+  const [updatingExtraPrecioId, setUpdatingExtraPrecioId] = useState<string | null>(null)
+  const [updatingItemRecargoId, setUpdatingItemRecargoId] = useState<string | null>(null)
+  const [detalleMesaFeedback, setDetalleMesaFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
 
-  const { usuario, tenant, loading: tenantLoading, darkMode, isAdmin, isCajero } = useTenant()
+  const { usuario, tenant, loading: tenantLoading, darkMode, isAdmin, isCajero, hasMesas } = useTenant()
   const { items, addItem, addComboItem, tipo, setTipo, clearCart } = useCartStore()
   const { sesionAbierta, loading: loadingCaja } = useEstadoCaja(tenant?.id ?? null)
   const { categorias, productos, loading, feedback: dataFeedback } = usePOSData()
@@ -62,6 +73,10 @@ export default function POSView() {
     if (fromParam === ROUTES.POS_FROM.MESAS_VIEW) return ROUTES.PROTECTED.MESAS
     return ROUTES.PROTECTED.POS
   }, [mesaId, fromParam, tenant?.gestion_mesas])
+
+  // Cajero en el tenant Oriental ve "Ver detalles de mesa" en lugar de "Cerrar cuenta"
+  // Admin y cajero de Oriental: UI simplificada en contexto de mesa (solo "Ver detalles")
+  const showVerDetallesMesa = (isAdmin || isCajero) && tenant?.id === TENANT_ID_ORIENTAL
   const {
     prepareConfirmOrder,
     confirmOrderWithFacturaChoice,
@@ -86,23 +101,25 @@ export default function POSView() {
   useEffect(() => {
     if (!mesaId || !tenant?.id) {
       setMesaLabel(null)
+      setMesaObj(null)
       return
     }
 
-    if (tipo !== 'local') setTipo('local')
+    if (!tipo || tipo === 'delivery') setTipo('local')
 
     let mounted = true
     const loadMesa = async () => {
       const supabase = createClient()
       const { data } = await supabase
         .from('mesas')
-        .select('numero, nombre')
+        .select('id, tenant_id, numero, nombre, estado, capacidad, activa, orden, created_at, updated_at')
         .eq('tenant_id', tenant.id)
         .eq('id', mesaId)
         .maybeSingle()
 
       if (!mounted) return
-      if (data?.numero) {
+      if (data) {
+        setMesaObj(data as Mesa)
         setMesaLabel(`Mesa #${data.numero}${data.nombre ? ` · ${data.nombre}` : ''}`)
       } else {
         setMesaLabel('Mesa seleccionada')
@@ -197,17 +214,32 @@ export default function POSView() {
   const TOP_PRODUCTOS_GRID = 10
   const filteredProductsTop = filteredProducts.slice(0, TOP_PRODUCTOS_GRID)
 
-  const searchActive = searchTerm.trim().length >= 2
+  const searchActive = searchTerm.trim().length >= 1
   const searchResults = useMemo(() => {
     if (!searchActive) return []
     const term = normalizarParaBusqueda(searchTerm)
     const catNames = new Map(categorias.map((c) => [c.id, normalizarParaBusqueda(c.nombre ?? '')]))
-    return productos.filter((p) => {
-      const nombre = normalizarParaBusqueda(p.nombre ?? '')
-      const desc = normalizarParaBusqueda(p.descripcion ?? '')
+
+    type Scored = { p: typeof productos[number]; score: number }
+    const scored: Scored[] = []
+
+    for (const p of productos) {
+      const nombre    = normalizarParaBusqueda(p.nombre ?? '')
+      const desc      = normalizarParaBusqueda(p.descripcion ?? '')
       const catNombre = p.categoria_id ? catNames.get(p.categoria_id) ?? '' : ''
-      return nombre.includes(term) || desc.includes(term) || catNombre.includes(term)
-    })
+
+      let score: number
+      if (nombre === term)              score = 0  // coincidencia exacta
+      else if (nombre.startsWith(term)) score = 1  // empieza con el término
+      else if (nombre.includes(term))   score = 2  // contiene en nombre
+      else if (desc.includes(term) || catNombre.includes(term)) score = 3  // contiene en desc/cat
+      else continue
+
+      scored.push({ p, score })
+    }
+
+    scored.sort((a, b) => a.score - b.score)
+    return scored.map(({ p }) => p)
   }, [productos, categorias, searchTerm, searchActive])
 
   const productsToShow = searchActive ? searchResults : filteredProductsTop
@@ -234,23 +266,40 @@ export default function POSView() {
       return
     }
 
-    // En mesa: confirmar directo sin factura (cuenta se cierra después).
-    if (mesaId || !FEATURES.POS_FACTURA_MODAL) {
+    if (mesaId) {
+      // Con mesa: enviar a cocina sin emitir factura (la factura se emite al cerrar la cuenta)
       const direct = await confirmOrderNoFactura()
       if (direct) {
-        // En flujo de mesa: confirmar e imprimir ticket sin modal de éxito ni redirección.
-        if (!(mesaId && direct.type === 'success')) {
+        if (direct.type === 'success') {
+          setFeedback({
+            ...direct,
+            title: `${direct.title} · ${mesaLabel ?? 'Mesa'}`,
+            message: 'Pedido enviado a cocina. Volviendo al panel…',
+          })
+          setTimeout(() => { window.location.href = backRoute }, 1800)
+        } else {
           setFeedback(direct)
         }
       }
+    } else if (!FEATURES.POS_FACTURA_MODAL) {
+      // Sin mesa y modal desactivado: emitir factura directo para que el agente Realtime imprima
+      const direct = await confirmOrderWithFacturaChoice(false, false)
+      if (direct) setFeedback(direct)
     }
+    // Else: FEATURES.POS_FACTURA_MODAL=true → el modal se abrió en prepareConfirmOrder
   }
 
   const onFacturaModalConfirm = async (facturaALNombreDelCliente: boolean, comprobanteNombreYCI: boolean) => {
     const result = await confirmOrderWithFacturaChoice(facturaALNombreDelCliente, comprobanteNombreYCI)
     if (result) {
-      // Guard de seguridad: en mesa no mostrar modal de éxito ni navegar automáticamente.
-      if (!(mesaId && result.type === 'success')) {
+      if (mesaId && result.type === 'success') {
+        setFeedback({
+          ...result,
+          title: `${result.title} · ${mesaLabel ?? 'Mesa'}`,
+          message: 'Pedido enviado a cocina. Volviendo al panel…',
+        })
+        setTimeout(() => { window.location.href = backRoute }, 1800)
+      } else {
         setFeedback(result)
       }
     }
@@ -299,6 +348,60 @@ export default function POSView() {
     } finally {
       setIsClosingMesaAccount(false)
     }
+  }
+
+  const reloadResumenMesa = async (mesa: Mesa, tenantId: string) => {
+    const resumenes = await mesasService.getResumenPedidosMesas(tenantId, [
+      { id: mesa.id, updated_at: mesa.updated_at },
+    ])
+    setResumenMesa(resumenes.find(r => r.mesa_id === mesa.id) ?? null)
+  }
+
+  const handleAbrirDetalleMesa = async () => {
+    if (!mesaObj || !tenant?.id) return
+    setDetalleMesaOpen(true)
+    setDetalleMesaFeedback(null)
+    setLoadingResumenMesa(true)
+    try {
+      await reloadResumenMesa(mesaObj, tenant.id)
+    } finally {
+      setLoadingResumenMesa(false)
+    }
+  }
+
+  const handleUpdateExtraPrecioModal = async (customizacionId: string, precioExtraGs: number) => {
+    if (!tenant?.id || !mesaObj) return
+    setUpdatingExtraPrecioId(customizacionId)
+    try {
+      await mesasService.updateItemCustomizacionExtraPrecio({ tenantId: tenant.id, customizacionId, precioExtraGs })
+      setDetalleMesaFeedback({ type: 'success', message: `Extra actualizado a Gs. ${precioExtraGs.toLocaleString('es-PY')}.` })
+      await reloadResumenMesa(mesaObj, tenant.id)
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'No se pudo actualizar el precio del extra.'
+      setDetalleMesaFeedback({ type: 'error', message: msg })
+    } finally {
+      setUpdatingExtraPrecioId(null)
+    }
+  }
+
+  const handleUpdateItemRecargoModal = async (itemPedidoId: string, extraGs: number) => {
+    if (!tenant?.id || !mesaObj) return
+    setUpdatingItemRecargoId(itemPedidoId)
+    try {
+      await mesasService.updateItemPedidoRecargo({ tenantId: tenant.id, itemPedidoId, extraGs })
+      setDetalleMesaFeedback({ type: 'success', message: `Recargo actualizado a Gs. ${extraGs.toLocaleString('es-PY')}.` })
+      await reloadResumenMesa(mesaObj, tenant.id)
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'No se pudo actualizar el recargo de nota.'
+      setDetalleMesaFeedback({ type: 'error', message: msg })
+    } finally {
+      setUpdatingItemRecargoId(null)
+    }
+  }
+
+  const onCerrarCuentaFromModal = async (_mesa: Mesa, _metodo?: 'tarjeta' | 'efectivo') => {
+    setDetalleMesaOpen(false)
+    await handleCerrarCuentaMesa()
   }
 
   const onAddProduct = (product: Producto) => {
@@ -369,146 +472,167 @@ export default function POSView() {
                     </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
-                    {cartaQrPath && (
+                    {showVerDetallesMesa ? (
+                      // Oriental 8: sin mesa → sin botones; con mesa → solo "Ver detalles"
+                      mesaId ? (
                       <button
                         type="button"
-                        onClick={() => {
-                          setCartaQrCopied(false)
-                          setIsCartaQrModalOpen(true)
-                        }}
-                        title="Abrir carta QR publica para clientes"
+                        onClick={handleAbrirDetalleMesa}
+                        title="Ver detalles de la mesa"
                         className={`inline-flex items-center justify-center rounded-lg border p-2 sm:rounded-xl sm:gap-2 sm:px-3 sm:py-2 sm:text-sm sm:font-medium transition min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 ${
                           darkMode
                             ? 'border-gray-600 text-gray-300 hover:bg-gray-700/50 hover:text-white'
                             : 'border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-orange-200'
                         }`}
                       >
-                        <QrCode className="h-4 w-4 sm:h-4 sm:w-4" />
-                        <span className="hidden sm:inline">Carta QR</span>
+                        <ClipboardList className="h-4 w-4 sm:h-4 sm:w-4" />
+                        <span className="hidden sm:inline">Ver detalles</span>
                       </button>
-                    )}
-                    {(isAdmin || isCajero) && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (!sesionAbierta) return
-                          setIsCanjePuntosOpen(true)
-                        }}
-                        title="Canje de puntos"
-                        disabled={!sesionAbierta}
-                        className={`relative inline-flex items-center justify-center rounded-xl px-2.5 py-2 sm:gap-2 sm:px-3.5 sm:py-2.5 sm:text-sm sm:font-semibold transition-all min-h-[42px] min-w-[42px] sm:min-h-0 sm:min-w-0 ${
-                          sesionAbierta
-                            ? darkMode
-                              ? 'text-amber-100 border border-amber-400/40 bg-gradient-to-br from-amber-500/30 via-orange-500/20 to-pink-500/20 shadow-[0_8px_24px_-12px_rgba(251,191,36,0.75)] hover:from-amber-500/45 hover:to-pink-500/30 hover:border-amber-300/60 hover:scale-[1.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300/70'
-                              : 'text-orange-800 border border-amber-300 bg-gradient-to-br from-amber-100 via-orange-50 to-pink-50 shadow-[0_8px_24px_-14px_rgba(234,88,12,0.55)] hover:from-amber-200 hover:to-pink-100 hover:border-orange-300 hover:scale-[1.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300'
-                            : darkMode
-                              ? 'border-gray-600 text-gray-300 hover:bg-gray-700/50 hover:text-white opacity-50 cursor-not-allowed'
-                              : 'border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-orange-200 opacity-50 cursor-not-allowed'
-                        }`}
-                      >
-                        <Gift className="h-4 w-4 sm:h-4 sm:w-4 shrink-0" />
-                        <span className="hidden sm:inline">Canje de puntos</span>
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => setReprintModalOpen(true)}
-                      title="Reimprimir ticket de cocina o factura"
-                      className={`inline-flex items-center justify-center rounded-lg border p-2 sm:rounded-xl sm:gap-2 sm:px-3 sm:py-2 sm:text-sm sm:font-medium transition min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 ${
-                        darkMode
-                          ? 'border-gray-600 text-gray-300 hover:bg-gray-700/50 hover:text-white'
-                          : 'border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-orange-200'
-                      }`}
-                    >
-                      <Printer className="h-4 w-4 sm:h-4 sm:w-4" />
-                      <span className="hidden sm:inline">Reimprimir</span>
-                    </button>
-                    {mesaId && (
-                      <button
-                        type="button"
-                        onClick={handleCerrarCuentaMesa}
-                        title="Cerrar cuenta de esta mesa"
-                        disabled={isClosingMesaAccount}
-                        className={`inline-flex items-center justify-center rounded-lg border p-2 sm:rounded-xl sm:gap-2 sm:px-3 sm:py-2 sm:text-sm sm:font-medium transition min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 ${
-                          isClosingMesaAccount
-                            ? 'opacity-60 cursor-not-allowed'
-                            : ''
-                        } ${
-                          darkMode
-                            ? 'border-emerald-500/40 text-emerald-300 hover:bg-emerald-700/20 hover:text-emerald-200'
-                            : 'border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:border-emerald-300'
-                        }`}
-                      >
-                        {isClosingMesaAccount ? (
-                          <Loader2 className="h-4 w-4 animate-spin sm:h-4 sm:w-4" />
-                        ) : (
-                          <CheckCircle2 className="h-4 w-4 sm:h-4 sm:w-4" />
+                      ) : null
+                    ) : (
+                      <>
+                        {cartaQrPath && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCartaQrCopied(false)
+                              setIsCartaQrModalOpen(true)
+                            }}
+                            title="Abrir carta QR publica para clientes"
+                            className={`inline-flex items-center justify-center rounded-lg border p-2 sm:rounded-xl sm:gap-2 sm:px-3 sm:py-2 sm:text-sm sm:font-medium transition min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 ${
+                              darkMode
+                                ? 'border-gray-600 text-gray-300 hover:bg-gray-700/50 hover:text-white'
+                                : 'border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-orange-200'
+                            }`}
+                          >
+                            <QrCode className="h-4 w-4 sm:h-4 sm:w-4" />
+                            <span className="hidden sm:inline">Carta QR</span>
+                          </button>
                         )}
-                        <span className="hidden sm:inline">Cerrar cuenta</span>
-                      </button>
-                    )}
-                    <Link
-                      href={backRoute}
-                      onClick={() => setNavigatingTo(backRoute)}
-                      title="Volver al panel de mesas"
-                      className={`inline-flex items-center justify-center rounded-lg border p-2 sm:rounded-xl sm:gap-2 sm:px-3 sm:py-2 sm:text-sm sm:font-medium transition min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 ${
-                        navigatingTo !== null && navigatingTo !== backRoute
-                          ? 'pointer-events-none cursor-not-allowed opacity-50'
-                          : ''
-                      } ${
-                        darkMode
-                          ? 'border-gray-600 text-gray-300 hover:bg-gray-700/50 hover:text-white'
-                          : 'border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-orange-200'
-                      }`}
-                    >
-                      {navigatingTo === backRoute ? (
-                        <Loader2 className="h-4 w-4 animate-spin sm:h-4 sm:w-4" />
-                      ) : (
-                        <Table2 className="h-4 w-4 sm:h-4 sm:w-4" />
-                      )}
-                      <span className="hidden sm:inline">Mesas</span>
-                    </Link>
-                    <Link
-                      href={`${ROUTES.PROTECTED.PEDIDOS}?from=${ROUTES.PEDIDOS_FROM.POS}`}
-                      onClick={() => setNavigatingTo(ROUTES.PROTECTED.PEDIDOS)}
-                      title="Historial de pedidos"
-                      className={`inline-flex items-center justify-center rounded-lg border p-2 sm:rounded-xl sm:gap-2 sm:px-3 sm:py-2 sm:text-sm sm:font-medium transition min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 ${navigatingTo !== null && navigatingTo !== ROUTES.PROTECTED.PEDIDOS
-                          ? 'pointer-events-none cursor-not-allowed opacity-50'
-                          : ''
-                        } ${darkMode
-                          ? 'border-gray-600 text-gray-300 hover:bg-gray-700/50 hover:text-white'
-                          : 'border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-orange-200'
-                        }`}
-                    >
-                      {navigatingTo === ROUTES.PROTECTED.PEDIDOS ? (
-                        <Loader2 className="h-4 w-4 animate-spin sm:h-4 sm:w-4" />
-                      ) : (
-                        <FileText className="h-4 w-4 sm:h-4 sm:w-4" />
-                      )}
-                      <span className="hidden sm:inline">Historial de pedidos</span>
-                    </Link>
-                    {isAdmin && (
-                      <Link
-                        href={ROUTES.PROTECTED.ADMIN}
-                        onClick={() => setNavigatingTo(ROUTES.PROTECTED.ADMIN)}
-                        title="Administración"
-                        className={`inline-flex items-center justify-center rounded-lg border p-2 sm:rounded-xl sm:gap-2 sm:px-3 sm:py-2 sm:text-sm sm:font-medium transition min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 ${
-                          navigatingTo !== null && navigatingTo !== ROUTES.PROTECTED.ADMIN
-                            ? 'pointer-events-none cursor-not-allowed opacity-50'
-                            : ''
-                        } ${
-                          darkMode
-                            ? 'border-gray-600 text-gray-300 hover:bg-gray-700/50 hover:text-white'
-                            : 'border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-orange-200'
-                        }`}
-                      >
-                        {navigatingTo === ROUTES.PROTECTED.ADMIN ? (
-                          <Loader2 className="h-4 w-4 animate-spin sm:h-4 sm:w-4" />
-                        ) : (
-                          <LayoutDashboard className="h-4 w-4 sm:h-4 sm:w-4" />
+                        {(isAdmin || isCajero) && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!sesionAbierta) return
+                              setIsCanjePuntosOpen(true)
+                            }}
+                            title="Canje de puntos"
+                            disabled={!sesionAbierta}
+                            className={`relative inline-flex items-center justify-center rounded-xl px-2.5 py-2 sm:gap-2 sm:px-3.5 sm:py-2.5 sm:text-sm sm:font-semibold transition-all min-h-[42px] min-w-[42px] sm:min-h-0 sm:min-w-0 ${
+                              sesionAbierta
+                                ? darkMode
+                                  ? 'text-amber-100 border border-amber-400/40 bg-gradient-to-br from-amber-500/30 via-orange-500/20 to-pink-500/20 shadow-[0_8px_24px_-12px_rgba(251,191,36,0.75)] hover:from-amber-500/45 hover:to-pink-500/30 hover:border-amber-300/60 hover:scale-[1.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300/70'
+                                  : 'text-orange-800 border border-amber-300 bg-gradient-to-br from-amber-100 via-orange-50 to-pink-50 shadow-[0_8px_24px_-14px_rgba(234,88,12,0.55)] hover:from-amber-200 hover:to-pink-100 hover:border-orange-300 hover:scale-[1.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300'
+                                : darkMode
+                                  ? 'border-gray-600 text-gray-300 hover:bg-gray-700/50 hover:text-white opacity-50 cursor-not-allowed'
+                                  : 'border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-orange-200 opacity-50 cursor-not-allowed'
+                            }`}
+                          >
+                            <Gift className="h-4 w-4 sm:h-4 sm:w-4 shrink-0" />
+                            <span className="hidden sm:inline">Canje de puntos</span>
+                          </button>
                         )}
-                        <span className="hidden sm:inline">Administración</span>
-                      </Link>
+                        <button
+                          type="button"
+                          onClick={() => setReprintModalOpen(true)}
+                          title="Reimprimir ticket de cocina o factura"
+                          className={`inline-flex items-center justify-center rounded-lg border p-2 sm:rounded-xl sm:gap-2 sm:px-3 sm:py-2 sm:text-sm sm:font-medium transition min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 ${
+                            darkMode
+                              ? 'border-gray-600 text-gray-300 hover:bg-gray-700/50 hover:text-white'
+                              : 'border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-orange-200'
+                          }`}
+                        >
+                          <Printer className="h-4 w-4 sm:h-4 sm:w-4" />
+                          <span className="hidden sm:inline">Reimprimir</span>
+                        </button>
+                        {mesaId && (
+                          <button
+                            type="button"
+                            onClick={handleCerrarCuentaMesa}
+                            title="Cerrar cuenta de esta mesa"
+                            disabled={isClosingMesaAccount}
+                            className={`inline-flex items-center justify-center rounded-lg border p-2 sm:rounded-xl sm:gap-2 sm:px-3 sm:py-2 sm:text-sm sm:font-medium transition min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 ${
+                              isClosingMesaAccount ? 'opacity-60 cursor-not-allowed' : ''
+                            } ${
+                              darkMode
+                                ? 'border-emerald-500/40 text-emerald-300 hover:bg-emerald-700/20 hover:text-emerald-200'
+                                : 'border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:border-emerald-300'
+                            }`}
+                          >
+                            {isClosingMesaAccount ? (
+                              <Loader2 className="h-4 w-4 animate-spin sm:h-4 sm:w-4" />
+                            ) : (
+                              <CheckCircle2 className="h-4 w-4 sm:h-4 sm:w-4" />
+                            )}
+                            <span className="hidden sm:inline">Cerrar cuenta</span>
+                          </button>
+                        )}
+                        {hasMesas && <Link
+                          href={backRoute}
+                          onClick={() => setNavigatingTo(backRoute)}
+                          title="Volver al panel de mesas"
+                          className={`inline-flex items-center justify-center rounded-lg border p-2 sm:rounded-xl sm:gap-2 sm:px-3 sm:py-2 sm:text-sm sm:font-medium transition min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 ${
+                            navigatingTo !== null && navigatingTo !== backRoute
+                              ? 'pointer-events-none cursor-not-allowed opacity-50'
+                              : ''
+                          } ${
+                            darkMode
+                              ? 'border-gray-600 text-gray-300 hover:bg-gray-700/50 hover:text-white'
+                              : 'border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-orange-200'
+                          }`}
+                        >
+                          {navigatingTo === backRoute ? (
+                            <Loader2 className="h-4 w-4 animate-spin sm:h-4 sm:w-4" />
+                          ) : (
+                            <Table2 className="h-4 w-4 sm:h-4 sm:w-4" />
+                          )}
+                          <span className="hidden sm:inline">Mesas</span>
+                        </Link>}
+                        <Link
+                          href={`${ROUTES.PROTECTED.PEDIDOS}?from=${ROUTES.PEDIDOS_FROM.POS}`}
+                          onClick={() => setNavigatingTo(ROUTES.PROTECTED.PEDIDOS)}
+                          title="Historial de pedidos"
+                          className={`inline-flex items-center justify-center rounded-lg border p-2 sm:rounded-xl sm:gap-2 sm:px-3 sm:py-2 sm:text-sm sm:font-medium transition min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 ${
+                            navigatingTo !== null && navigatingTo !== ROUTES.PROTECTED.PEDIDOS
+                              ? 'pointer-events-none cursor-not-allowed opacity-50'
+                              : ''
+                          } ${
+                            darkMode
+                              ? 'border-gray-600 text-gray-300 hover:bg-gray-700/50 hover:text-white'
+                              : 'border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-orange-200'
+                          }`}
+                        >
+                          {navigatingTo === ROUTES.PROTECTED.PEDIDOS ? (
+                            <Loader2 className="h-4 w-4 animate-spin sm:h-4 sm:w-4" />
+                          ) : (
+                            <FileText className="h-4 w-4 sm:h-4 sm:w-4" />
+                          )}
+                          <span className="hidden sm:inline">Historial de pedidos</span>
+                        </Link>
+                        {isAdmin && (
+                          <Link
+                            href={ROUTES.PROTECTED.ADMIN}
+                            onClick={() => setNavigatingTo(ROUTES.PROTECTED.ADMIN)}
+                            title="Administración"
+                            className={`inline-flex items-center justify-center rounded-lg border p-2 sm:rounded-xl sm:gap-2 sm:px-3 sm:py-2 sm:text-sm sm:font-medium transition min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 ${
+                              navigatingTo !== null && navigatingTo !== ROUTES.PROTECTED.ADMIN
+                                ? 'pointer-events-none cursor-not-allowed opacity-50'
+                                : ''
+                            } ${
+                              darkMode
+                                ? 'border-gray-600 text-gray-300 hover:bg-gray-700/50 hover:text-white'
+                                : 'border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-orange-200'
+                            }`}
+                          >
+                            {navigatingTo === ROUTES.PROTECTED.ADMIN ? (
+                              <Loader2 className="h-4 w-4 animate-spin sm:h-4 sm:w-4" />
+                            ) : (
+                              <LayoutDashboard className="h-4 w-4 sm:h-4 sm:w-4" />
+                            )}
+                            <span className="hidden sm:inline">Administración</span>
+                          </Link>
+                        )}
+                      </>
                     )}
                   </div>
                 </header>
@@ -643,6 +767,7 @@ export default function POSView() {
               isProcessing={isProcessing || facturaPrefModalOpen}
               darkMode={darkMode}
               onEditItem={(itemId) => setEditingItemId(itemId)}
+              isMesaOrder={!!mesaId}
             />
           </div>
         </div>
@@ -704,6 +829,26 @@ export default function POSView() {
         onClose={() => setReprintModalOpen(false)}
         darkMode={darkMode}
       />
+      {detalleMesaOpen && (
+        <DetalleMesaModal
+          mesa={mesaObj}
+          reservasMesa={[]}
+          resumenPedido={resumenMesa}
+          loadingResumen={loadingResumenMesa}
+          isClosingMesa={isClosingMesaAccount}
+          feedback={detalleMesaFeedback}
+          onClose={() => setDetalleMesaOpen(false)}
+          onTomarPedido={() => setDetalleMesaOpen(false)}
+          onCerrarCuenta={onCerrarCuentaFromModal}
+          onUpdateExtraPrecio={handleUpdateExtraPrecioModal}
+          updatingExtraId={updatingExtraPrecioId}
+          onUpdateItemRecargo={handleUpdateItemRecargoModal}
+          updatingItemId={updatingItemRecargoId}
+          showOperationalActions={false}
+          showSplitActions={false}
+          showCerrarCuenta
+        />
+      )}
       {isCartaQrModalOpen && cartaQrUrl && (
         <div
           className={`fixed inset-0 z-[70] flex items-center justify-center p-4 ${darkMode ? 'bg-black/70' : 'bg-black/55'}`}
