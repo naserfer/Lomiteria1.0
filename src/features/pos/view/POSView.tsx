@@ -51,7 +51,17 @@ export default function POSView() {
   const { items, addItem, addComboItem, tipo, setTipo, clearCart } = useCartStore()
   const { sesionAbierta, loading: loadingCaja } = useEstadoCaja(tenant?.id ?? null)
   const { categorias, productos, loading, feedback: dataFeedback } = usePOSData()
-  const mesaId = searchParams.get('mesaId')
+  const mesaId    = searchParams.get('mesaId')
+  const fromParam = searchParams.get('from')
+
+  // Destino de regreso al salir del POS con mesa:
+  // - desde MesasView (admin)  → vuelve a /home/mesas
+  // - desde MesaPickerScreen   → vuelve a /home/pos (el picker se renderiza sin mesaId)
+  const backRoute = useMemo(() => {
+    if (!mesaId || !tenant?.gestion_mesas) return ROUTES.PROTECTED.MESAS
+    if (fromParam === ROUTES.POS_FROM.MESAS_VIEW) return ROUTES.PROTECTED.MESAS
+    return ROUTES.PROTECTED.POS
+  }, [mesaId, fromParam, tenant?.gestion_mesas])
   const {
     prepareConfirmOrder,
     confirmOrderWithFacturaChoice,
@@ -227,14 +237,34 @@ export default function POSView() {
     // En mesa: confirmar directo sin factura (cuenta se cierra después).
     if (mesaId || !FEATURES.POS_FACTURA_MODAL) {
       const direct = await confirmOrderNoFactura()
-      if (direct && (!mesaId || direct.type !== 'success')) setFeedback(direct)
+      if (direct) {
+        if (mesaId && direct.type === 'success') {
+          setFeedback({
+            ...direct,
+            title:   `${direct.title} · ${mesaLabel ?? 'Mesa'}`,
+            message: 'Pedido enviado a cocina. Volviendo al panel…',
+          })
+          setTimeout(() => { window.location.href = backRoute }, 1800)
+        } else {
+          setFeedback(direct)
+        }
+      }
     }
   }
 
   const onFacturaModalConfirm = async (facturaALNombreDelCliente: boolean, comprobanteNombreYCI: boolean) => {
     const result = await confirmOrderWithFacturaChoice(facturaALNombreDelCliente, comprobanteNombreYCI)
     if (result) {
-      if (!mesaId || result.type !== 'success') setFeedback(result)
+      if (mesaId && result.type === 'success') {
+        setFeedback({
+          ...result,
+          title:   `${result.title} · ${mesaLabel ?? 'Mesa'}`,
+          message: 'Pedido enviado a cocina. Volviendo al panel…',
+        })
+        setTimeout(() => { window.location.href = backRoute }, 1800)
+      } else {
+        setFeedback(result)
+      }
     }
   }
 
@@ -268,7 +298,7 @@ export default function POSView() {
       // dejamos al usuario leer el mensaje con calma.
       if (!result.warning) {
         setTimeout(() => {
-          window.location.href = ROUTES.PROTECTED.MESAS
+          window.location.href = backRoute
         }, 900)
       }
     } catch (error) {
@@ -430,11 +460,11 @@ export default function POSView() {
                       </button>
                     )}
                     <Link
-                      href={ROUTES.PROTECTED.MESAS}
-                      onClick={() => setNavigatingTo(ROUTES.PROTECTED.MESAS)}
-                      title="Panel de mesas"
+                      href={backRoute}
+                      onClick={() => setNavigatingTo(backRoute)}
+                      title="Volver al panel de mesas"
                       className={`inline-flex items-center justify-center rounded-lg border p-2 sm:rounded-xl sm:gap-2 sm:px-3 sm:py-2 sm:text-sm sm:font-medium transition min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 ${
-                        navigatingTo !== null && navigatingTo !== ROUTES.PROTECTED.MESAS
+                        navigatingTo !== null && navigatingTo !== backRoute
                           ? 'pointer-events-none cursor-not-allowed opacity-50'
                           : ''
                       } ${
@@ -443,7 +473,7 @@ export default function POSView() {
                           : 'border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-orange-200'
                       }`}
                     >
-                      {navigatingTo === ROUTES.PROTECTED.MESAS ? (
+                      {navigatingTo === backRoute ? (
                         <Loader2 className="h-4 w-4 animate-spin sm:h-4 sm:w-4" />
                       ) : (
                         <Table2 className="h-4 w-4 sm:h-4 sm:w-4" />

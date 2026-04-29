@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/client'
-import type { EstadoMesa, Mesa, MesaReserva, MesaUnion, MesaUnionItem, PedidoDivision } from '../types/mesas.types'
+import type { EstadoMesa, Mesa, MesaReserva, MesaUnion, MesaUnionItem, PedidoDivision, ResumenMesa } from '../types/mesas.types'
 
 const MESAS_SELECT = 'id, tenant_id, numero, nombre, capacidad, estado, activa, orden, created_at, updated_at'
 
@@ -486,5 +486,82 @@ export const mesasService = {
     }
 
     return { pedidoPadreId: pedidoPadre.id, partes, montos }
+  },
+
+  async getResumenPedidosMesas(
+    tenantId: string,
+    mesas: Array<{ id: string; updated_at: string }>
+  ): Promise<ResumenMesa[]> {
+    if (mesas.length === 0) return []
+    const supabase  = createClient()
+    const mesaIds   = mesas.map(m => m.id)
+    // updated_at de la mesa refleja cuándo cambió a 'ocupada' — úsalo como inicio de sesión
+    const ocupadaSince = Object.fromEntries(mesas.map(m => [m.id, m.updated_at]))
+
+    // Buffer de 15 min para absorber el race condition donde el pedido
+    // se crea segundos ANTES de que el servicio actualice mesa.estado = 'ocupada'
+    const BUFFER_MS = 15 * 60 * 1000
+    const cutoffBySesion = Object.fromEntries(
+      mesas.map(m => [
+        m.id,
+        new Date(new Date(m.updated_at).getTime() - BUFFER_MS).toISOString(),
+      ])
+    )
+
+    const { data, error } = await supabase
+      .from('pedidos')
+      .select(`
+        id,
+        numero_pedido,
+        estado_pedido,
+        total,
+        mesa_id,
+        created_at,
+        items_pedido (
+          id,
+          producto_nombre,
+          cantidad,
+          precio_unitario,
+          subtotal,
+          notas
+        )
+      `)
+      .eq('tenant_id', tenantId)
+      .in('mesa_id', mesaIds)
+      .in('estado_pedido', ['EDIT', 'FACT'])
+      .neq('estado', 'cancelado')
+      .order('created_at', { ascending: true })
+
+    if (error) throw error
+
+    // Agrupa por mesa y descarta pedidos de sesiones anteriores
+    const byMesa = new Map<string, ResumenMesa>()
+    for (const p of (data ?? [])) {
+      const mesaId = p.mesa_id as string
+      const cutoff = cutoffBySesion[mesaId]
+      // Excluir pedidos anteriores al inicio de la sesión actual (con buffer de 15 min)
+      if (cutoff && p.created_at < cutoff) continue
+
+      if (!byMesa.has(mesaId)) {
+        byMesa.set(mesaId, { mesa_id: mesaId, pedidos: [], total_items: 0, total_acumulado: 0 })
+      }
+      const resumen = byMesa.get(mesaId)!
+      const items = ((p.items_pedido ?? []) as Array<{
+        id: string; producto_nombre: string; cantidad: number
+        precio_unitario: number; subtotal: number; notas: string | null
+      }>)
+      resumen.pedidos.push({
+        id: p.id,
+        numero_pedido: p.numero_pedido,
+        estado_pedido: p.estado_pedido as 'EDIT' | 'FACT',
+        total: p.total,
+        created_at: p.created_at,
+        items,
+      })
+      resumen.total_items     += items.reduce((s, i) => s + i.cantidad, 0)
+      resumen.total_acumulado += p.total
+    }
+
+    return Array.from(byMesa.values())
   },
 }
