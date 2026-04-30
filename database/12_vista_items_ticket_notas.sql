@@ -26,16 +26,24 @@ SELECT
     (
       SELECT string_agg(
         CASE c.tipo
-          WHEN 'removido' THEN 'Sin ' || i.nombre
-          WHEN 'extra' THEN 'Extra ' || i.nombre || ' (+' || (c.cantidad_ajustada - c.cantidad_original)::TEXT || ')'
-          WHEN 'modificado' THEN i.nombre || ' ' || c.cantidad_original::TEXT || '→' || c.cantidad_ajustada::TEXT
-          ELSE i.nombre
+          WHEN 'removido' THEN 'Sin ' || COALESCE(i.nombre, c.motivo, 'ingrediente')
+          WHEN 'extra' THEN
+            'Extra ' || COALESCE(i.nombre, c.motivo, 'ingrediente')
+            || CASE
+              WHEN COALESCE(c.precio_extra, 0) > 0
+                THEN ' Gs. ' || to_char(round(c.precio_extra)::bigint, 'FM999G999G999G990')
+              ELSE ''
+            END
+          WHEN 'modificado' THEN
+            COALESCE(i.nombre, c.motivo, 'ingrediente')
+            || ' ' || c.cantidad_original::TEXT || '→' || c.cantidad_ajustada::TEXT
+          ELSE COALESCE(i.nombre, c.motivo, 'ingrediente')
         END,
         ' · '
-        ORDER BY c.tipo, i.nombre
+        ORDER BY c.tipo, COALESCE(i.nombre, c.motivo, 'ingrediente')
       )
       FROM items_pedido_customizacion c
-      JOIN ingredientes i ON i.id = c.ingrediente_id
+      LEFT JOIN ingredientes i ON i.id = c.ingrediente_id
       WHERE c.item_pedido_id = ip.id
     ),
     ''

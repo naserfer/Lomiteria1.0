@@ -188,6 +188,39 @@ export default function MesasView() {
     }
   }, [tenant?.id, loadResumenes])
 
+  // Refresco puntual al abrir el modal para evitar mostrar datos viejos en el detalle.
+  useEffect(() => {
+    if (!tenant?.id || !selectedMesaId) return
+    const mesaActiva = mesas.find((m) => m.id === selectedMesaId)
+    if (!mesaActiva || mesaActiva.estado !== 'ocupada') return
+
+    let isCancelled = false
+    setLoadingResumen(true)
+
+    void mesasService
+      .getResumenPedidosMesas(tenant.id, [{ id: mesaActiva.id, updated_at: mesaActiva.updated_at }])
+      .then((data) => {
+        if (isCancelled) return
+        const resumenMesa = data.find((r) => r.mesa_id === mesaActiva.id) ?? null
+        setResumenByMesa((prev) => {
+          const next = { ...prev }
+          if (resumenMesa) next[mesaActiva.id] = resumenMesa
+          else delete next[mesaActiva.id]
+          return next
+        })
+      })
+      .catch(() => {
+        // Silencioso: el modal sigue usable aunque falle este refresh puntual.
+      })
+      .finally(() => {
+        if (!isCancelled) setLoadingResumen(false)
+      })
+
+    return () => {
+      isCancelled = true
+    }
+  }, [tenant?.id, selectedMesaId, mesas])
+
   // ── Helpers derivados ─────────────────────────────────────────────────────────
 
   const setMesaFeedback = useCallback((mesaId: string, type: 'success' | 'error', message: string) => {
@@ -430,6 +463,7 @@ export default function MesasView() {
         tenantId: tenant.id,
         mesaId: mesa.id,
         usuarioId: usuario?.id ?? null,
+        metodoCobro: metodo ?? null,
       })
       const accion = result.warning
         ? 'pendiente/parcial'

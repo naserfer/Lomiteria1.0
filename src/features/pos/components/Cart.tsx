@@ -51,6 +51,24 @@ interface Props {
   isMesaOrder?: boolean
 }
 
+const normalizeExtraToken = (value: string) =>
+  value
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/\bdesde\s+notas?\b/g, ' ')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+const extractExtraFromText = (value?: string) => {
+  const raw = value?.trim()
+  if (!raw) return null
+  const match = raw.match(/^\s*extra\s+(.+)$/i)
+  if (!match?.[1]) return null
+  const cleaned = match[1].replace(/\bdesde\s+notas?\b/gi, '').replace(/\s+/g, ' ').trim()
+  return cleaned || null
+}
+
 export default function Cart({
   onOpenClientModal,
   onConfirmOrder,
@@ -118,27 +136,52 @@ export default function Cart({
               }`}
             >
               <div className="mb-2">
-                <div className="flex items-center justify-between gap-2 mb-1">
-                  <div className="flex items-center gap-1.5">
-                    <span className={`font-bold text-sm ${darkMode ? 'text-white' : 'text-gray-900'}`}>
-                      {item.nombre}
-                    </span>
-                    {item.tipo === 'combo' && (
-                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-300">
-                        COMBO
-                      </span>
-                    )}
-                  </div>
+                <div className="mb-2 flex items-start gap-2">
                   <button
+                    type="button"
                     onClick={() => onEditItem?.(item.id)}
-                    className={`text-[11px] inline-flex items-center gap-1 px-2 py-1 rounded-lg ${
-                      darkMode
-                        ? 'bg-gray-800 text-orange-200 hover:bg-gray-700'
-                        : 'bg-white text-orange-600 border border-orange-200 hover:bg-orange-50'
+                    disabled={!onEditItem}
+                    className={`flex-1 min-w-0 rounded-xl border px-2.5 py-2 text-left transition ${
+                      onEditItem
+                        ? darkMode
+                          ? 'border-gray-600 bg-gray-700/40 hover:border-orange-400/60 hover:bg-gray-700'
+                          : 'border-gray-200 bg-gray-100/80 hover:border-orange-300 hover:bg-orange-50/50'
+                        : darkMode
+                          ? 'border-gray-700 bg-gray-700/30 text-gray-500 cursor-not-allowed'
+                          : 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed'
                     }`}
                     title="Editar ingredientes"
                   >
-                    <Settings2 size={12} />
+                    <div className="flex items-center gap-1.5">
+                      <span className={`truncate text-sm font-bold ${darkMode ? 'text-white' : 'text-gray-900'}`}>
+                        {item.nombre}
+                      </span>
+                      {item.tipo === 'combo' && (
+                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-300">
+                          COMBO
+                        </span>
+                      )}
+                    </div>
+                    <div className={`mt-0.5 text-xs ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                      Tocar para editar ingredientes
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onEditItem?.(item.id)}
+                    disabled={!onEditItem}
+                    className={`min-h-[44px] shrink-0 inline-flex items-center gap-1.5 px-3 rounded-xl text-xs font-semibold transition ${
+                      onEditItem
+                        ? darkMode
+                          ? 'bg-gray-800 text-orange-200 hover:bg-gray-700'
+                          : 'bg-orange-50 text-orange-700 border border-orange-200 hover:bg-orange-100'
+                        : darkMode
+                          ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                          : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                    }`}
+                    title="Editar ingredientes"
+                  >
+                    <Settings2 size={14} />
                     Editar
                   </button>
                 </div>
@@ -155,6 +198,17 @@ export default function Cart({
                         {ci.customization?.extras.map((e) => (
                           <div key={e.slug} className="ml-3 text-green-500 text-[10px]">+ {e.label}{e.quantityPerItem > 1 ? ` (x${e.quantityPerItem})` : ''}</div>
                         ))}
+                        {ci.customization?.notes?.trim() && (
+                          <div
+                            className={`ml-3 mt-0.5 rounded-lg border px-2 py-1 text-xs font-medium ${
+                              darkMode
+                                ? 'border-amber-500/40 bg-amber-950/40 text-amber-100'
+                                : 'border-amber-200 bg-amber-50 text-amber-900'
+                            }`}
+                          >
+                            {ci.customization.notes.trim()}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -167,36 +221,95 @@ export default function Cart({
                     )}
                     {item.customization && (
                       <div className={`text-[11px] space-y-1 mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-                        {item.customization.extras.length > 0 && (
-                          <p>
-                            <span className="font-semibold text-green-500 mr-1">+ Extras:</span>
-                            {item.customization.extras.map((extra) => `${extra.label} (${extra.quantityPerItem}${extra.unit})`).join(', ')}
-                          </p>
-                        )}
-                        {item.customization.removedIngredients.length > 0 && (
-                          <p>
-                            <span className="font-semibold text-red-400 mr-1">- Sin:</span>
-                            {item.customization.removedIngredients.map((ing) => ing.label).join(', ')}
-                          </p>
-                        )}
+                        {(() => {
+                          const extrasFromButtons = item.customization.extras.map((extra) =>
+                            `${extra.label} (${extra.quantityPerItem}${extra.unit})`
+                          )
+                          const noteAsExtra = extractExtraFromText(item.customization.notes)
+                          const allExtraTokens = new Set(
+                            extrasFromButtons.map((x) => normalizeExtraToken(x))
+                          )
+                          const noteAsExtraLabel =
+                            noteAsExtra && !allExtraTokens.has(normalizeExtraToken(noteAsExtra))
+                              ? `${noteAsExtra} (1unidad)`
+                              : null
+                          const visibleExtras = noteAsExtraLabel
+                            ? [...extrasFromButtons, noteAsExtraLabel]
+                            : extrasFromButtons
+                          const hasOnlyGenericNote = Boolean(item.customization.notes?.trim()) && !noteAsExtra
+
+                          return (
+                            <>
+                              {visibleExtras.length > 0 && (
+                                <p>
+                                  <span className="font-semibold text-green-500 mr-1">+ Extras:</span>
+                                  {visibleExtras.join(', ')}
+                                </p>
+                              )}
+                              {item.customization.removedIngredients.length > 0 && (
+                                <p>
+                                  <span className="font-semibold text-red-400 mr-1">- Sin:</span>
+                                  {item.customization.removedIngredients.map((ing) => ing.label).join(', ')}
+                                </p>
+                              )}
+                              {hasOnlyGenericNote && (
+                                <p
+                                  className={`mt-1 rounded-lg border px-2 py-1.5 text-sm font-medium leading-snug ${
+                                    darkMode
+                                      ? 'border-amber-500/40 bg-amber-950/35 text-amber-100'
+                                      : 'border-amber-200 bg-amber-50 text-amber-950'
+                                  }`}
+                                >
+                                  {item.customization.notes!.trim()}
+                                </p>
+                              )}
+                            </>
+                          )
+                        })()}
                       </div>
+                    )}
+                    {!item.customization && item.notas?.trim() && (
+                      (() => {
+                        const noteAsExtra = extractExtraFromText(item.notas)
+                        if (noteAsExtra) {
+                          return (
+                            <div className={`mb-2 mt-1 text-[11px] ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                              <span className="font-semibold text-green-500 mr-1">+ Extras:</span>
+                              {noteAsExtra} (1unidad)
+                            </div>
+                          )
+                        }
+                        return (
+                          <p
+                            className={`mb-2 mt-1 rounded-lg border px-2 py-1.5 text-sm font-medium leading-snug ${
+                              darkMode
+                                ? 'border-amber-500/40 bg-amber-950/35 text-amber-100'
+                                : 'border-amber-200 bg-amber-50 text-amber-950'
+                            }`}
+                          >
+                            {item.notas.trim()}
+                          </p>
+                        )
+                      })()
                     )}
                   </>
                 )}
-                <div className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                  {formatGuaranies(item.precio + (item.extraCostPerUnit ?? 0))} × {item.cantidad}
-                </div>
+                {(item.cantidad > 1 || (item.extraCostPerUnit ?? 0) > 0) && (
+                  <div className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                    Unitario: {formatGuaranies(item.precio + (item.extraCostPerUnit ?? 0))} × {item.cantidad}
+                  </div>
+                )}
               </div>
               
               <div className="flex items-center justify-between">
                 <div className="text-base font-bold text-orange-600">
                   {formatGuaranies(item.subtotal)}
                 </div>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1.5">
                   <button
                     onClick={() => updateQuantity(item.id, item.cantidad - 1)}
                     disabled={item.cantidad <= 1}
-                    className={`p-1.5 rounded transition-colors ${
+                    className={`min-h-[40px] min-w-[40px] rounded-lg transition-colors inline-flex items-center justify-center ${
                       item.cantidad <= 1
                         ? darkMode
                           ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
@@ -206,20 +319,20 @@ export default function Cart({
                           : 'bg-gray-200 hover:bg-gray-300'
                     }`}
                   >
-                    <Minus size={12} />
+                    <Minus size={15} />
                   </button>
-                  <span className="w-8 text-center font-bold text-sm">{item.cantidad}</span>
+                  <span className="min-w-[2rem] text-center font-bold text-base">{item.cantidad}</span>
                   <button
                     onClick={() => updateQuantity(item.id, item.cantidad + 1)}
-                    className="p-1.5 bg-orange-100 text-orange-600 rounded hover:bg-orange-200 transition-colors"
+                    className="min-h-[40px] min-w-[40px] rounded-lg bg-orange-100 text-orange-600 hover:bg-orange-200 transition-colors inline-flex items-center justify-center"
                   >
-                    <Plus size={12} />
+                    <Plus size={15} />
                   </button>
                   <button
                     onClick={() => removeItem(item.id)}
-                    className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors ml-1"
+                    className="min-h-[40px] min-w-[40px] rounded-lg text-red-600 hover:bg-red-50 transition-colors inline-flex items-center justify-center ml-0.5"
                   >
-                    <Trash2 size={14} />
+                    <Trash2 size={15} />
                   </button>
                 </div>
               </div>

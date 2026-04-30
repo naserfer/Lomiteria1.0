@@ -31,7 +31,7 @@ export default function HomeView() {
   const role = usuario?.rol as UserRole | undefined
 
   return (
-    <div className="h-full flex flex-col justify-center space-y-16 py-8">
+    <div className="min-h-full flex flex-col gap-10 py-6 sm:py-8">
       <HomeHeader tenantInfo={tenantInfo} darkMode={darkMode} />
       <DashboardCards darkMode={darkMode} role={role} hasMesas={hasMesas} />
       {/* <FeaturesList darkMode={darkMode} /> */}

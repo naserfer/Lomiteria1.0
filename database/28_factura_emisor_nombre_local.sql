@@ -7,6 +7,9 @@
 --
 -- Este script actualiza la vista consumida por el agente de impresión.
 
+ALTER TABLE public.facturas
+  ADD COLUMN IF NOT EXISTS metodo_cobro TEXT;
+
 CREATE OR REPLACE VIEW public.vista_factura_impresion AS
 SELECT
   f.id AS factura_id,
@@ -49,18 +52,38 @@ SELECT
           'producto_nombre',
             regexp_replace(ip.producto_nombre, '\s-\s[0-9]+$', '')
             || COALESCE(
-              (
-                SELECT
-                  CASE
-                    WHEN COUNT(*) = 0 THEN ''
-                    ELSE ' (Extra: ' || string_agg(i.nombre, ', ' ORDER BY i.nombre) || ')'
-                  END
-                FROM public.items_pedido_customizacion c
-                JOIN public.ingredientes i ON i.id = c.ingrediente_id
-                WHERE c.item_pedido_id = ip.id
-                  AND c.tipo = 'extra'
+              NULLIF(
+                (
+                  SELECT
+                    CASE
+                      WHEN COUNT(*) = 0 THEN ''
+                      ELSE ' (Extra: ' || string_agg(
+                        COALESCE(i.nombre, c.motivo, 'extra')
+                        || CASE
+                          WHEN COALESCE(c.precio_extra, 0) > 0
+                            THEN ' Gs. ' || to_char(round(c.precio_extra)::bigint, 'FM999G999G999G990')
+                          ELSE ''
+                        END,
+                        ', '
+                        ORDER BY COALESCE(i.nombre, c.motivo, 'extra')
+                      ) || ')'
+                    END
+                  FROM public.items_pedido_customizacion c
+                  LEFT JOIN public.ingredientes i ON i.id = c.ingrediente_id
+                  WHERE c.item_pedido_id = ip.id
+                    AND c.tipo = 'extra'
+                ),
+                ''
               ),
-              ''
+              CASE
+                WHEN round(ip.subtotal - (ip.precio_unitario * ip.cantidad)) > 0
+                  THEN ' (Extra: '
+                    || regexp_replace(COALESCE(NULLIF(trim(ip.notas), ''), 'recargo'), '^Nota:\s*', '', 'i')
+                    || ' Gs. '
+                    || to_char(round(ip.subtotal - (ip.precio_unitario * ip.cantidad))::bigint, 'FM999G999G999G990')
+                    || ')'
+                ELSE ''
+              END
             ),
           'cantidad', ip.cantidad,
           'precio_unitario', ip.precio_unitario,
@@ -76,7 +99,8 @@ SELECT
     WHERE ip.pedido_id = f.pedido_id
   ) AS detalle,
   m.numero AS mesa_numero,
-  COALESCE(t.config_impresion ->> 'pie_ticket', '¡Gracias por tu compra!') AS saludo_final
+  COALESCE(t.config_impresion ->> 'pie_ticket', '¡Gracias por tu compra!') AS saludo_final,
+  f.metodo_cobro
 
 FROM public.facturas f
 JOIN public.tenants t ON t.id = f.tenant_id AND t.is_deleted = false
@@ -86,7 +110,7 @@ LEFT JOIN public.clientes c ON c.id = f.cliente_id AND (c.is_deleted = false OR 
 LEFT JOIN public.tenant_facturacion tf ON tf.tenant_id = f.tenant_id;
 
 COMMENT ON VIEW public.vista_factura_impresion IS
-  'Factura para impresión: emisor mostrado con nombre comercial del local (tenants.nombre).';
+  'Factura para impresión: emisor mostrado con nombre comercial del local (tenants.nombre), incluye método de cobro y extras con monto.';
 
 GRANT SELECT ON public.vista_factura_impresion TO anon;
 GRANT SELECT ON public.vista_factura_impresion TO authenticated;

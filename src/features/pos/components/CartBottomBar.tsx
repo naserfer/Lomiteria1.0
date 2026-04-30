@@ -51,10 +51,10 @@ export function CartBottomBar({ darkMode }: Props) {
         </div>
         <div className="min-w-0 flex-1">
           <p className={`truncate text-sm font-semibold ${darkMode ? 'text-white' : 'text-gray-900'}`}>
-            {itemCount} {itemCount === 1 ? 'ítem' : 'ítems'}
+            Items: {itemCount}
           </p>
           <p className={`text-xs font-medium ${darkMode ? 'text-orange-400' : 'text-orange-600'}`}>
-            {formatGuaranies(total)}
+            Total: {formatGuaranies(total)}
           </p>
         </div>
       </div>

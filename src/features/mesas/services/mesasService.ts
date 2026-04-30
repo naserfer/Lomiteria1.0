@@ -131,6 +131,7 @@ export const mesasService = {
         cantidad,
         precio_unitario,
         subtotal,
+        notas,
         pedidos!inner (
           id,
           tenant_id,
@@ -182,6 +183,76 @@ export const mesasService = {
 
     if (updatePedidoError) {
       throw new Error(`No se pudo actualizar el total del pedido: ${updatePedidoError.message}`)
+    }
+
+    // Persistir recargo de nota como customización tipo "extra" (sin ingrediente_id)
+    // para que impresión y detalle lo traten igual que extras de botón "+".
+    const motivoNota = (itemRow.notas ?? '').trim() || 'Recargo por nota'
+    const { data: noteExtraRows, error: noteExtraError } = await supabase
+      .from('items_pedido_customizacion')
+      .select('id')
+      .eq('item_pedido_id', params.itemPedidoId)
+      .eq('tipo', 'extra')
+      .is('ingrediente_id', null)
+      .like('motivo', 'Nota:%')
+      .order('created_at', { ascending: true })
+
+    if (noteExtraError) {
+      throw new Error(`No se pudo sincronizar customización de nota: ${noteExtraError.message}`)
+    }
+
+    const noteExtraId = noteExtraRows?.[0]?.id
+    const extraRowsToDelete = (noteExtraRows ?? []).slice(1).map((r) => r.id)
+
+    if (extraGs > 0) {
+      const payload = {
+        tipo: 'extra' as const,
+        ingrediente_id: null,
+        cantidad_original: 0,
+        cantidad_ajustada: 1,
+        precio_extra: extraGs,
+        motivo: `Nota: ${motivoNota}`,
+      }
+
+      if (noteExtraId) {
+        const { error: updateNoteExtraError } = await supabase
+          .from('items_pedido_customizacion')
+          .update(payload)
+          .eq('id', noteExtraId)
+          .eq('item_pedido_id', params.itemPedidoId)
+        if (updateNoteExtraError) {
+          throw new Error(`No se pudo actualizar recargo de nota en customizaciones: ${updateNoteExtraError.message}`)
+        }
+      } else {
+        const { error: insertNoteExtraError } = await supabase
+          .from('items_pedido_customizacion')
+          .insert({
+            item_pedido_id: params.itemPedidoId,
+            ...payload,
+          })
+        if (insertNoteExtraError) {
+          throw new Error(`No se pudo insertar recargo de nota en customizaciones: ${insertNoteExtraError.message}`)
+        }
+      }
+    } else if (noteExtraId) {
+      const idsToDelete = [noteExtraId, ...extraRowsToDelete]
+      const { error: deleteNoteExtraError } = await supabase
+        .from('items_pedido_customizacion')
+        .delete()
+        .in('id', idsToDelete)
+      if (deleteNoteExtraError) {
+        throw new Error(`No se pudo limpiar recargo de nota en customizaciones: ${deleteNoteExtraError.message}`)
+      }
+    }
+
+    if (extraRowsToDelete.length > 0 && extraGs > 0) {
+      const { error: cleanupNoteExtrasError } = await supabase
+        .from('items_pedido_customizacion')
+        .delete()
+        .in('id', extraRowsToDelete)
+      if (cleanupNoteExtrasError) {
+        throw new Error(`No se pudo limpiar duplicados de recargo de nota: ${cleanupNoteExtrasError.message}`)
+      }
     }
 
     return {
@@ -681,19 +752,33 @@ export const mesasService = {
     mesas: Array<{ id: string; updated_at: string }>
   ): Promise<ResumenMesa[]> {
     if (mesas.length === 0) return []
-    const supabase  = createClient()
-    const mesaIds   = mesas.map(m => m.id)
-    // updated_at de la mesa refleja cuándo cambió a 'ocupada' — úsalo como inicio de sesión
-    const ocupadaSince = Object.fromEntries(mesas.map(m => [m.id, m.updated_at]))
+    const supabase = createClient()
+    const mesaIds = mesas.map((m) => m.id)
 
-    // Buffer de 15 min para absorber el race condition donde el pedido
-    // se crea segundos ANTES de que el servicio actualice mesa.estado = 'ocupada'
-    const BUFFER_MS = 15 * 60 * 1000
+    // Cortar por sesión real: último liberar_mesa por cada mesa.
+    // Evita arrastrar pedidos FACT históricos en reaperturas de mesa.
+    const { data: eventosLiberar, error: eventosLiberarError } = await supabase
+      .from('mesa_eventos')
+      .select('mesa_id, created_at')
+      .eq('tenant_id', tenantId)
+      .in('mesa_id', mesaIds)
+      .eq('tipo', 'liberar_mesa')
+      .order('created_at', { ascending: false })
+
+    if (eventosLiberarError) throw eventosLiberarError
+
+    const lastLiberarByMesa: Record<string, string> = {}
+    for (const ev of eventosLiberar ?? []) {
+      if (!ev?.mesa_id || !ev?.created_at) continue
+      if (!lastLiberarByMesa[ev.mesa_id]) {
+        lastLiberarByMesa[ev.mesa_id] = ev.created_at
+      }
+    }
+
+    // Fallback: si la mesa nunca fue liberada (datos legacy), usar updated_at como referencia.
+    const fallbackCutoffByMesa = Object.fromEntries(mesas.map((m) => [m.id, m.updated_at]))
     const cutoffBySesion = Object.fromEntries(
-      mesas.map(m => [
-        m.id,
-        new Date(new Date(m.updated_at).getTime() - BUFFER_MS).toISOString(),
-      ])
+      mesas.map((m) => [m.id, lastLiberarByMesa[m.id] ?? fallbackCutoffByMesa[m.id]])
     )
 
     const { data, error } = await supabase
@@ -716,6 +801,7 @@ export const mesasService = {
             id,
             tipo,
             precio_extra,
+            motivo,
             ingredientes:ingrediente_id (
               nombre
             )
@@ -735,8 +821,8 @@ export const mesasService = {
     for (const p of (data ?? [])) {
       const mesaId = p.mesa_id as string
       const cutoff = cutoffBySesion[mesaId]
-      // Excluir pedidos anteriores al inicio de la sesión actual (con buffer de 15 min)
-      if (cutoff && p.created_at < cutoff) continue
+      // Excluir pedidos de sesiones anteriores.
+      if (cutoff && p.created_at <= cutoff) continue
 
       if (!byMesa.has(mesaId)) {
         byMesa.set(mesaId, { mesa_id: mesaId, pedidos: [], total_items: 0, total_acumulado: 0 })
@@ -749,6 +835,7 @@ export const mesasService = {
           id: string
           tipo: 'extra' | 'removido' | 'modificado'
           precio_extra: number | null
+          motivo: string | null
           ingredientes: { nombre: string | null } | Array<{ nombre: string | null }> | null
         }>
       }>)
@@ -766,7 +853,7 @@ export const mesasService = {
             precio_extra: Number(c.precio_extra ?? 0),
             ingrediente_nombre: Array.isArray(c.ingredientes)
               ? (c.ingredientes[0]?.nombre ?? null)
-              : (c.ingredientes?.nombre ?? null),
+              : (c.ingredientes?.nombre ?? c.motivo ?? null),
           })),
         })),
       })

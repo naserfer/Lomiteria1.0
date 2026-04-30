@@ -57,6 +57,7 @@ export default function POSView() {
   const [updatingExtraPrecioId, setUpdatingExtraPrecioId] = useState<string | null>(null)
   const [updatingItemRecargoId, setUpdatingItemRecargoId] = useState<string | null>(null)
   const [detalleMesaFeedback, setDetalleMesaFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  const [mesaToast, setMesaToast] = useState<string | null>(null)
 
   const { usuario, tenant, loading: tenantLoading, darkMode, isAdmin, isCajero, hasMesas } = useTenant()
   const { items, addItem, addComboItem, tipo, setTipo, clearCart } = useCartStore()
@@ -167,6 +168,12 @@ export default function POSView() {
     if (!searchBarStuck) setSearchOverlayOpen(false)
   }, [searchBarStuck])
 
+  useEffect(() => {
+    if (!mesaToast) return
+    const timeout = setTimeout(() => setMesaToast(null), 2500)
+    return () => clearTimeout(timeout)
+  }, [mesaToast])
+
   // Focus search input when overlay opens
   useEffect(() => {
     if (searchOverlayOpen) {
@@ -271,12 +278,7 @@ export default function POSView() {
       const direct = await confirmOrderNoFactura()
       if (direct) {
         if (direct.type === 'success') {
-          setFeedback({
-            ...direct,
-            title: `${direct.title} · ${mesaLabel ?? 'Mesa'}`,
-            message: 'Pedido enviado a cocina. Volviendo al panel…',
-          })
-          setTimeout(() => { window.location.href = backRoute }, 1800)
+          setMesaToast('Pedido enviado a cocina')
         } else {
           setFeedback(direct)
         }
@@ -293,19 +295,14 @@ export default function POSView() {
     const result = await confirmOrderWithFacturaChoice(facturaALNombreDelCliente, comprobanteNombreYCI)
     if (result) {
       if (mesaId && result.type === 'success') {
-        setFeedback({
-          ...result,
-          title: `${result.title} · ${mesaLabel ?? 'Mesa'}`,
-          message: 'Pedido enviado a cocina. Volviendo al panel…',
-        })
-        setTimeout(() => { window.location.href = backRoute }, 1800)
+        setMesaToast('Pedido enviado a cocina')
       } else {
         setFeedback(result)
       }
     }
   }
 
-  const handleCerrarCuentaMesa = async () => {
+  const handleCerrarCuentaMesa = async (metodo?: 'tarjeta' | 'efectivo') => {
     if (!tenant?.id || !mesaId) return
     if (isClosingMesaAccount) return
 
@@ -315,6 +312,7 @@ export default function POSView() {
         tenantId: tenant.id,
         mesaId,
         usuarioId: usuario?.id ?? null,
+        metodoCobro: metodo ?? null,
       })
 
       clearCart()
@@ -328,6 +326,7 @@ export default function POSView() {
             : 'Cuenta cerrada, factura reimpresa y mesa liberada.',
         details: [
           { label: 'Mesa', value: mesaLabel ?? 'Mesa seleccionada' },
+          { label: 'Cobro', value: metodo ?? 'sin método' },
           { label: 'Impresión', value: result.warning ? 'Pendiente o parcial' : 'Factura + ticket de puntos (agente)' },
         ],
       })
@@ -399,9 +398,9 @@ export default function POSView() {
     }
   }
 
-  const onCerrarCuentaFromModal = async (_mesa: Mesa, _metodo?: 'tarjeta' | 'efectivo') => {
+  const onCerrarCuentaFromModal = async (_mesa: Mesa, metodo?: 'tarjeta' | 'efectivo') => {
     setDetalleMesaOpen(false)
-    await handleCerrarCuentaMesa()
+    await handleCerrarCuentaMesa(metodo)
   }
 
   const onAddProduct = (product: Producto) => {
@@ -442,7 +441,7 @@ export default function POSView() {
           <div className="flex-shrink-0 pt-2 md:pt-3">
             <div className={searchOverlayOpen ? 'opacity-0 pointer-events-none' : ''}>
               <div className="max-w-7xl mx-auto">
-                <header className="flex flex-row items-center justify-between gap-2 sm:gap-3 mb-1.5 sm:mb-2">
+                <header className="mb-1.5 flex flex-col gap-2 sm:mb-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                   <div className="flex min-w-0 items-center gap-2 sm:gap-2.5">
                     <div
                       className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg sm:h-9 sm:w-9 sm:rounded-xl ${
@@ -465,29 +464,68 @@ export default function POSView() {
                         Selecciona productos y confirma el pedido
                       </p>
                       {mesaLabel && (
-                        <p className={`text-xs mt-0.5 font-semibold ${darkMode ? 'text-emerald-300' : 'text-emerald-700'}`}>
-                          Pedido en {mesaLabel}
-                        </p>
+                        <div className="mt-0.5 flex items-center gap-2">
+                          <p className={`text-xs font-semibold ${darkMode ? 'text-emerald-300' : 'text-emerald-700'}`}>
+                            Pedido en {mesaLabel}
+                          </p>
+                          {mesaId && hasMesas && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setNavigatingTo(backRoute)
+                                window.location.href = backRoute
+                              }}
+                              className={`text-[11px] font-semibold underline-offset-2 hover:underline ${
+                                darkMode ? 'text-emerald-200' : 'text-emerald-800'
+                              }`}
+                              title="Cambiar de mesa"
+                            >
+                              Cambiar mesa
+                            </button>
+                          )}
+                        </div>
                       )}
                     </div>
                   </div>
-                  <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+                  <div className="flex w-full items-center gap-1.5 sm:w-auto sm:shrink-0 sm:gap-2">
                     {showVerDetallesMesa ? (
-                      // Oriental 8: sin mesa → sin botones; con mesa → solo "Ver detalles"
-                      mesaId ? (
-                      <button
-                        type="button"
-                        onClick={handleAbrirDetalleMesa}
-                        title="Ver detalles de la mesa"
-                        className={`inline-flex items-center justify-center rounded-lg border p-2 sm:rounded-xl sm:gap-2 sm:px-3 sm:py-2 sm:text-sm sm:font-medium transition min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 ${
-                          darkMode
-                            ? 'border-gray-600 text-gray-300 hover:bg-gray-700/50 hover:text-white'
-                            : 'border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-orange-200'
-                        }`}
-                      >
-                        <ClipboardList className="h-4 w-4 sm:h-4 sm:w-4" />
-                        <span className="hidden sm:inline">Ver detalles</span>
-                      </button>
+                      // Flujo simplificado con mesas: acciones claras para cajero.
+                      mesaId && hasMesas ? (
+                        <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:items-center">
+                          <button
+                            type="button"
+                            onClick={handleAbrirDetalleMesa}
+                            title="Abrir detalles y acciones de la mesa"
+                            className={`inline-flex min-h-[40px] items-center justify-center gap-2 rounded-lg border px-2.5 py-2 text-xs font-medium transition sm:px-3 sm:text-sm ${
+                              darkMode
+                                ? 'border-gray-600 text-gray-300 hover:bg-gray-700/50 hover:text-white'
+                                : 'border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-orange-200'
+                            }`}
+                          >
+                            <ClipboardList className="h-4 w-4" />
+                            <span>Detalles de mesa</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setNavigatingTo(backRoute)
+                              window.location.href = backRoute
+                            }}
+                            title="Ir a elegir o cambiar mesa"
+                            className={`inline-flex min-h-[40px] items-center justify-center gap-2 rounded-lg border px-2.5 py-2 text-xs font-medium transition sm:px-3 sm:text-sm ${
+                              darkMode
+                                ? 'border-gray-600 text-gray-300 hover:bg-gray-700/50 hover:text-white'
+                                : 'border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-orange-200'
+                            }`}
+                          >
+                            {navigatingTo === backRoute ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Table2 className="h-4 w-4" />
+                            )}
+                            <span>Cambiar mesa</span>
+                          </button>
+                        </div>
                       ) : null
                     ) : (
                       <>
@@ -760,7 +798,14 @@ export default function POSView() {
             )}
           </div>
 
-          <div id={CART_SECTION_ID} className="lg:col-span-1 scroll-mt-4 self-start w-full min-w-0">
+          <div
+            id={CART_SECTION_ID}
+            className={`lg:col-span-1 scroll-mt-4 self-start w-full min-w-0 rounded-2xl border p-2 sm:p-3 lg:rounded-none lg:border-0 lg:p-0 ${
+              darkMode
+                ? 'border-orange-500/30 bg-orange-500/5'
+                : 'border-orange-200 bg-orange-50/60'
+            }`}
+          >
             <Cart
               onOpenClientModal={() => setIsClientModalOpen(true)}
               onConfirmOrder={onConfirmOrder}
@@ -786,6 +831,12 @@ export default function POSView() {
           onConfirm={onFacturaModalConfirm}
           isProcessing={isProcessing}
         />
+      )}
+
+      {mesaId && mesaToast && (
+        <div className="fixed right-4 top-20 z-[65] rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800 shadow-lg">
+          {mesaToast}
+        </div>
       )}
 
       <ClientModal

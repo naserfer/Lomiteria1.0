@@ -60,6 +60,23 @@ const ESTADO_BADGE: Record<EstadoMesa, string> = {
   bloqueada: 'bg-gray-500 text-white border-gray-500 dark:bg-gray-600 dark:border-gray-600',
 }
 
+const normalizeRecargoText = (value: string) =>
+  value
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/\bagregado\s+desde\s+notas?\b/g, ' ')
+    .replace(/\bnota\b/g, ' ')
+    .replace(/\bextra\b/g, ' ')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+const normalizeExtraDisplayLabel = (value?: string | null) => {
+  const raw = (value ?? '').trim()
+  if (!raw) return ''
+  return raw.replace(/^nota\s*:\s*/i, '').trim()
+}
+
 export function DetalleMesaModal({
   mesa,
   reservasMesa,
@@ -103,12 +120,15 @@ export function DetalleMesaModal({
     setEditingExtraRowKey(null)
     setEditingItemId(null)
     setExtraDraft('')
+  }, [mesa?.id])
+
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose()
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [mesa?.id, onClose])
+  }, [onClose])
 
   const startEditExtra = (customizacionId: string, rowKey: string, currentExtra: number) => {
     setEditingExtraId(customizacionId)
@@ -202,16 +222,19 @@ export function DetalleMesaModal({
     )
   }, [mesa, isSaving, onSetEstado])
 
+  const resumenVisible = mesa?.estado === 'ocupada' ? resumenPedido : null
+  const loadingResumenVisible = mesa?.estado === 'ocupada' ? loadingResumen : false
+
   if (!mounted || !mesa) return null
 
   return createPortal(
     <div
       className="fixed inset-0 z-[220] flex items-center justify-center"
       style={{
-        paddingTop:    'max(0.75rem, env(safe-area-inset-top,    0.75rem))',
-        paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom, 0.75rem))',
-        paddingLeft:   'max(0.75rem, env(safe-area-inset-left,   0.75rem))',
-        paddingRight:  'max(0.75rem, env(safe-area-inset-right,  0.75rem))',
+        paddingTop:    'max(0.4rem, env(safe-area-inset-top,    0.4rem))',
+        paddingBottom: 'max(0.4rem, env(safe-area-inset-bottom, 0.4rem))',
+        paddingLeft:   'max(0.4rem, env(safe-area-inset-left,   0.4rem))',
+        paddingRight:  'max(0.4rem, env(safe-area-inset-right,  0.4rem))',
       }}
       role="dialog"
       aria-modal="true"
@@ -219,7 +242,7 @@ export function DetalleMesaModal({
     >
       <div className="absolute inset-0 bg-black/45 backdrop-blur-sm" onClick={onClose} aria-hidden="true" />
 
-      <div className="relative w-full max-w-4xl max-h-full rounded-3xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-2xl overflow-hidden flex flex-col">
+      <div className="relative flex w-full max-w-[min(96vw,960px)] max-h-[min(88vh,780px)] flex-col overflow-hidden self-center rounded-3xl border border-gray-200 bg-white shadow-2xl dark:border-gray-800 dark:bg-gray-900">
         <div className="flex items-start justify-between gap-3 border-b border-gray-100 dark:border-gray-800 px-4 sm:px-5 py-3 sm:py-4">
           <div>
             <p className="text-[11px] uppercase tracking-widest text-gray-400">Detalle de mesa</p>
@@ -236,7 +259,7 @@ export function DetalleMesaModal({
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto overscroll-contain px-4 sm:px-6 py-4 sm:py-5 space-y-4 sm:space-y-5"
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 sm:px-6 py-4 sm:py-5 space-y-4 sm:space-y-5"
           style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom, 1rem))' }}
         >
           <div className={`grid grid-cols-1 ${showCerrarCuenta ? 'md:grid-cols-3' : 'md:grid-cols-2'} gap-2`}>
@@ -294,29 +317,29 @@ export function DetalleMesaModal({
           )}
 
           <section className="rounded-xl border border-red-200 dark:border-red-900/40 overflow-hidden">
-            <div className="px-3 py-2 bg-red-50/80 dark:bg-red-950/20">
+            <div className="px-3 py-2.5 bg-red-50/80 dark:bg-red-950/20">
               <div className="flex items-center gap-1.5">
                 <ClipboardList className="w-3.5 h-3.5 text-red-600 dark:text-red-400" />
-                <span className="text-xs font-bold text-red-700 dark:text-red-300">Pedido activo</span>
-                {loadingResumen && !resumenPedido && <Loader2 className="w-3 h-3 animate-spin text-red-400" />}
-                {resumenPedido && (
-                  <span className="text-xs text-red-500 dark:text-red-400">
-                    · {resumenPedido.total_items} {resumenPedido.total_items === 1 ? 'item' : 'items'} · Gs. {resumenPedido.total_acumulado.toLocaleString('es-PY')}
+                <span className="text-sm font-bold text-red-700 dark:text-red-300">Pedido activo</span>
+                {loadingResumenVisible && !resumenVisible && <Loader2 className="w-3 h-3 animate-spin text-red-400" />}
+                {resumenVisible && (
+                  <span className="text-sm text-red-500 dark:text-red-400">
+                    · {resumenVisible.total_items} {resumenVisible.total_items === 1 ? 'item' : 'items'} · Gs. {resumenVisible.total_acumulado.toLocaleString('es-PY')}
                   </span>
                 )}
               </div>
             </div>
             <div className="px-3 py-2 bg-white/60 dark:bg-gray-900/40 space-y-1">
-              {loadingResumen && !resumenPedido ? (
+              {loadingResumenVisible && !resumenVisible ? (
                 <p className="text-[11px] text-gray-400">Cargando resumen...</p>
-              ) : !resumenPedido ? (
+              ) : !resumenVisible ? (
                 <p className="text-[11px] text-gray-400">Sin pedido registrado en esta mesa</p>
               ) : (
                 <>
-                  {resumenPedido.pedidos.map((pedido, pi) => (
+                  {resumenVisible.pedidos.map((pedido, pi) => (
                     <div key={pedido.id}>
-                      {resumenPedido.pedidos.length > 1 && (
-                        <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">Pedido #{pedido.numero_pedido}</p>
+                      {resumenVisible.pedidos.length > 1 && (
+                        <p className="text-sm font-bold text-gray-500 uppercase tracking-wide mb-1">Pedido #{pedido.numero_pedido}</p>
                       )}
                       <div className="space-y-0.5">
                         {pedido.items.map(item => (
@@ -326,12 +349,11 @@ export function DetalleMesaModal({
                               {(() => {
                                 const extras = (item.customizaciones ?? []).filter((c) => c.tipo === 'extra')
                                 const notaTexto = item.notas?.trim() ?? ''
-                                const notaNorm = notaTexto.toLowerCase().replace(/\s+/g, ' ').trim()
+                                const notaNorm = normalizeRecargoText(notaTexto)
                                 const extraNormSet = new Set(
                                   extras
-                                    .map((e) => (e.ingrediente_nombre ?? '').toLowerCase().replace(/\s+/g, ' ').trim())
+                                    .map((e) => normalizeRecargoText(e.ingrediente_nombre ?? ''))
                                     .filter(Boolean)
-                                    .flatMap((name) => [name, `extra ${name}`])
                                 )
                                 const showNotaLine = Boolean(notaNorm) && !extraNormSet.has(notaNorm)
                                 const base = Number(item.precio_unitario) * Number(item.cantidad)
@@ -348,8 +370,9 @@ export function DetalleMesaModal({
                                       const rowKey = `${item.id}:${idx}`
                                       const isEditing = editingExtraId === extra.id && editingExtraRowKey === rowKey
                                       const isUpdating = updatingExtraId === extra.id
-                                      const extraLabel = extra.ingrediente_nombre?.trim()
-                                        ? `Extra ${extra.ingrediente_nombre}`
+                                      const extraNombreVisible = normalizeExtraDisplayLabel(extra.ingrediente_nombre)
+                                      const extraLabel = extraNombreVisible
+                                        ? `Extra ${extraNombreVisible}`
                                         : 'Extra'
                                       const extraVisible = Math.max(
                                         0,
@@ -359,7 +382,7 @@ export function DetalleMesaModal({
                                         <span key={extra.id} className="mt-1 block">
                                           {isEditing ? (
                                             <span className="inline-flex items-center gap-1.5">
-                                              <label className="text-[11px] text-amber-700 dark:text-amber-400 font-medium">
+                                              <label className="text-sm text-amber-700 dark:text-amber-400 font-medium">
                                                 {extraLabel}:
                                               </label>
                                               <input
@@ -368,13 +391,13 @@ export function DetalleMesaModal({
                                                 step={1000}
                                                 value={extraDraft}
                                                 onChange={(e) => setExtraDraft(e.target.value)}
-                                                className="w-24 rounded-md border border-amber-300 bg-white px-1.5 py-0.5 text-[11px] text-gray-700"
+                                                className="w-28 rounded-md border border-amber-300 bg-white px-2 py-1 text-sm text-gray-700"
                                               />
                                               <button
                                                 type="button"
                                                 disabled={isUpdating}
                                                 onClick={() => void saveEditExtra(extra.id)}
-                                                className="rounded-md border border-emerald-300 bg-emerald-100 px-1.5 py-0.5 text-[11px] font-semibold text-emerald-700 disabled:opacity-60"
+                                                className="rounded-md border border-emerald-300 bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700 disabled:opacity-60"
                                               >
                                                 {isUpdating ? '...' : 'OK'}
                                               </button>
@@ -382,21 +405,21 @@ export function DetalleMesaModal({
                                                 type="button"
                                                 disabled={isUpdating}
                                                 onClick={cancelEditExtra}
-                                                className="rounded-md border border-gray-300 bg-gray-50 px-1.5 py-0.5 text-[11px] font-semibold text-gray-600 disabled:opacity-60"
+                                                className="rounded-md border border-gray-300 bg-gray-50 px-2 py-1 text-xs font-semibold text-gray-600 disabled:opacity-60"
                                               >
                                                 X
                                               </button>
                                             </span>
                                           ) : (
                                             <span className="inline-flex items-center gap-2">
-                                              <span className="text-[11px] text-amber-700 dark:text-amber-400">
+                                              <span className="text-sm text-amber-700 dark:text-amber-400">
                                                 {extraLabel}: Gs. {Math.round(extraVisible).toLocaleString('es-PY')}
                                               </span>
                                               <button
                                                 type="button"
                                                 disabled={!onUpdateExtraPrecio}
                                                 onClick={() => onUpdateExtraPrecio ? startEditExtra(extra.id, rowKey, extraVisible) : undefined}
-                                                className="rounded-md border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[11px] font-semibold text-amber-700 disabled:opacity-50"
+                                                className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700 disabled:opacity-50"
                                               >
                                                 Editar
                                               </button>
@@ -410,20 +433,20 @@ export function DetalleMesaModal({
                                       <span className="mt-1 block">
                                         {editingItemId === item.id && !fallbackToFirstExtra ? (
                                           <span className="inline-flex items-center gap-1.5">
-                                            <span className="text-xs text-gray-400">{notaTexto}</span>
+                                            <span className="text-sm text-gray-500">{notaTexto}</span>
                                             <input
                                               type="number"
                                               min={0}
                                               step={1000}
                                               value={extraDraft}
                                               onChange={(e) => setExtraDraft(e.target.value)}
-                                              className="w-24 rounded-md border border-amber-300 bg-white px-1.5 py-0.5 text-[11px] text-gray-700"
+                                              className="w-28 rounded-md border border-amber-300 bg-white px-2 py-1 text-sm text-gray-700"
                                             />
                                             <button
                                               type="button"
                                               disabled={updatingItemId === item.id}
                                               onClick={() => void saveEditItemRecargo(item.id)}
-                                              className="rounded-md border border-emerald-300 bg-emerald-100 px-1.5 py-0.5 text-[11px] font-semibold text-emerald-700 disabled:opacity-60"
+                                              className="rounded-md border border-emerald-300 bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700 disabled:opacity-60"
                                             >
                                               {updatingItemId === item.id ? '...' : 'OK'}
                                             </button>
@@ -431,27 +454,29 @@ export function DetalleMesaModal({
                                               type="button"
                                               disabled={updatingItemId === item.id}
                                               onClick={cancelEditItemRecargo}
-                                              className="rounded-md border border-gray-300 bg-gray-50 px-1.5 py-0.5 text-[11px] font-semibold text-gray-600 disabled:opacity-60"
+                                              className="rounded-md border border-gray-300 bg-gray-50 px-2 py-1 text-xs font-semibold text-gray-600 disabled:opacity-60"
                                             >
                                               X
                                             </button>
                                           </span>
                                         ) : (
                                           <span className="inline-flex items-center gap-2">
-                                            <span className="text-xs text-gray-400">{notaTexto}</span>
+                                            <span className="text-sm text-gray-500">{notaTexto}</span>
                                             {noteRecargo > 0 && (
-                                              <span className="text-[11px] text-amber-700 dark:text-amber-400">
+                                              <span className="text-sm text-amber-700 dark:text-amber-400">
                                                 Gs. {Math.round(noteRecargo).toLocaleString('es-PY')}
                                               </span>
                                             )}
-                                            <button
-                                              type="button"
-                                              disabled={!onUpdateItemRecargo}
-                                              onClick={() => onUpdateItemRecargo ? startEditItemRecargo(item.id, noteRecargo) : undefined}
-                                              className="rounded-md border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[11px] font-semibold text-amber-700 disabled:opacity-50"
-                                            >
-                                              Editar
-                                            </button>
+                                            {!fallbackToFirstExtra && (
+                                              <button
+                                                type="button"
+                                                disabled={!onUpdateItemRecargo}
+                                                onClick={() => onUpdateItemRecargo ? startEditItemRecargo(item.id, noteRecargo) : undefined}
+                                                className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700 disabled:opacity-50"
+                                              >
+                                                Editar
+                                              </button>
+                                            )}
                                           </span>
                                         )}
                                       </span>
@@ -464,12 +489,12 @@ export function DetalleMesaModal({
                           </div>
                         ))}
                       </div>
-                      {pi < resumenPedido.pedidos.length - 1 && <hr className="border-red-100 dark:border-red-900/30 my-1.5" />}
+                      {pi < resumenVisible.pedidos.length - 1 && <hr className="border-red-100 dark:border-red-900/30 my-1.5" />}
                     </div>
                   ))}
                   <div className="flex items-center justify-between pt-1.5 border-t border-red-200 dark:border-red-900/40 mt-1">
                     <span className="text-sm font-bold text-red-700 dark:text-red-300">Total</span>
-                    <span className="text-3xl font-black text-red-700 dark:text-red-300 tabular-nums">Gs.{resumenPedido.total_acumulado.toLocaleString('es-PY')}</span>
+                    <span className="text-3xl font-black text-red-700 dark:text-red-300 tabular-nums">Gs.{resumenVisible.total_acumulado.toLocaleString('es-PY')}</span>
                   </div>
                 </>
               )}
