@@ -66,8 +66,10 @@ export default function MesasView() {
   const [deletingReservaId, setDeletingReservaId] = useState<string | null>(null)
   const [cancelandoReservaId, setCancelandoReservaId] = useState<string | null>(null)
   const [closingCuentaMesaId, setClosingCuentaMesaId] = useState<string | null>(null)
+  const [closeOptionsMesaId, setCloseOptionsMesaId] = useState<string | null>(null)
   const [updatingExtraPrecioId, setUpdatingExtraPrecioId] = useState<string | null>(null)
   const [updatingItemRecargoId, setUpdatingItemRecargoId] = useState<string | null>(null)
+  const [addingManualItemMesaId, setAddingManualItemMesaId] = useState<string | null>(null)
 
   // ── Confirmaciones inline ──
   const [confirmDividirMesaId,  setConfirmDividirMesaId]  = useState<string | null>(null)
@@ -457,6 +459,7 @@ export default function MesasView() {
   const handleCerrarCuentaMesa = useCallback(async (mesa: Mesa, metodo?: 'tarjeta' | 'efectivo') => {
     if (!tenant?.id) return
     setClosingCuentaMesaId(mesa.id)
+    setCloseOptionsMesaId(null)
     setGlobalError(null)
     try {
       const result = await cerrarCuentaMesaService.cerrarCuenta({
@@ -503,7 +506,11 @@ export default function MesasView() {
     }
   }, [tenant?.id, selectedMesa, loadData, setMesaFeedback])
 
-  const handleUpdateItemRecargo = useCallback(async (itemPedidoId: string, extraGs: number) => {
+  const handleUpdateItemRecargo = useCallback(async (
+    itemPedidoId: string,
+    extraGs: number,
+    options?: { mode?: 'line_total' | 'note_extra' }
+  ) => {
     if (!tenant?.id || !selectedMesa) return
     setUpdatingItemRecargoId(itemPedidoId)
     try {
@@ -511,13 +518,39 @@ export default function MesasView() {
         tenantId: tenant.id,
         itemPedidoId,
         extraGs,
+        mode: options?.mode,
       })
-      setMesaFeedback(selectedMesa.id, 'success', `Recargo de nota actualizado a Gs. ${extraGs.toLocaleString('es-PY')}.`)
+      setMesaFeedback(
+        selectedMesa.id,
+        'success',
+        options?.mode === 'note_extra'
+          ? `Extra de nota actualizado a Gs. ${extraGs.toLocaleString('es-PY')}.`
+          : `Precio actualizado a Gs. ${extraGs.toLocaleString('es-PY')}.`
+      )
       await loadData()
     } catch (e: any) {
-      setMesaFeedback(selectedMesa.id, 'error', e?.message ?? 'No se pudo actualizar el recargo de nota.')
+      setMesaFeedback(selectedMesa.id, 'error', e?.message ?? 'No se pudo actualizar el precio.')
     } finally {
       setUpdatingItemRecargoId(null)
+    }
+  }, [tenant?.id, selectedMesa, loadData, setMesaFeedback])
+
+  const handleAddProductoManual = useCallback(async (nombre: string, precioGs: number) => {
+    if (!tenant?.id || !selectedMesa) return
+    setAddingManualItemMesaId(selectedMesa.id)
+    try {
+      await mesasService.addProductoManualEnMesa({
+        tenantId: tenant.id,
+        mesaId: selectedMesa.id,
+        nombre,
+        precioGs,
+      })
+      setMesaFeedback(selectedMesa.id, 'success', `Producto agregado: ${nombre} (Gs. ${precioGs.toLocaleString('es-PY')}).`)
+      await loadData()
+    } catch (e: any) {
+      setMesaFeedback(selectedMesa.id, 'error', e?.message ?? 'No se pudo agregar el producto.')
+    } finally {
+      setAddingManualItemMesaId(null)
     }
   }, [tenant?.id, selectedMesa, loadData, setMesaFeedback])
 
@@ -690,6 +723,7 @@ export default function MesasView() {
                 const isSavingEdit  = savingEditId === mesa.id
                 const confirmDelete = confirmDeleteMesaId === mesa.id
                 const isDeleting    = deletingMesaId === mesa.id
+                const showCloseOptions = closeOptionsMesaId === mesa.id
 
                 return (
                   <article
@@ -710,9 +744,6 @@ export default function MesasView() {
                       <div className="min-w-0">
                         <p className="text-[10px] uppercase tracking-widest text-gray-400 dark:text-gray-500">Mesa</p>
                         <h3 className="text-3xl font-black leading-none mt-0.5">#{mesa.numero}</h3>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5 truncate">
-                          {mesa.nombre?.trim() || 'Sin alias'} · {mesa.capacidad} pax
-                        </p>
                       </div>
                       <div className="flex flex-col items-end gap-2 shrink-0">
                         <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${ESTADO_BADGE[mesa.estado]}`}>
@@ -883,7 +914,7 @@ export default function MesasView() {
                             disabled={mesa.estado !== 'ocupada' || isClosingMesa}
                             onClick={(e) => {
                               e.stopPropagation()
-                              void handleCerrarCuentaMesa(mesa)
+                              setCloseOptionsMesaId(prev => (prev === mesa.id ? null : mesa.id))
                             }}
                             className="rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-700 px-2.5 py-2 text-xs font-semibold hover:bg-emerald-100 transition dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-300 disabled:opacity-50 inline-flex items-center justify-center gap-1"
                           >
@@ -891,6 +922,33 @@ export default function MesasView() {
                             Cerrar cuenta
                           </button>
                         </div>
+
+                        {showCloseOptions && mesa.estado === 'ocupada' && (
+                          <div className="grid grid-cols-2 gap-2 rounded-xl border border-emerald-200 bg-emerald-50/70 dark:bg-emerald-900/20 p-2">
+                            <button
+                              type="button"
+                              disabled={isClosingMesa}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                void handleCerrarCuentaMesa(mesa, 'efectivo')
+                              }}
+                              className="rounded-lg border border-emerald-300 bg-white dark:bg-gray-900 text-emerald-700 px-2.5 py-2 text-xs font-semibold disabled:opacity-50"
+                            >
+                              Efectivo
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isClosingMesa}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                void handleCerrarCuentaMesa(mesa, 'tarjeta')
+                              }}
+                              className="rounded-lg border border-emerald-300 bg-white dark:bg-gray-900 text-emerald-700 px-2.5 py-2 text-xs font-semibold disabled:opacity-50"
+                            >
+                              Tarjeta
+                            </button>
+                          </div>
+                        )}
 
                         {/* Feedback por mesa */}
                         {feedback && (
@@ -932,6 +990,8 @@ export default function MesasView() {
             updatingExtraId={updatingExtraPrecioId}
             onUpdateItemRecargo={handleUpdateItemRecargo}
             updatingItemId={updatingItemRecargoId}
+            onAddProductoManual={handleAddProductoManual}
+            addingProductoManual={selectedMesa ? addingManualItemMesaId === selectedMesa.id : false}
           />
 
           {/* ── Paneles inferiores ── */}

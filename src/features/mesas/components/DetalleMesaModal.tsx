@@ -10,6 +10,7 @@ import {
   Loader2,
   Lock,
   Minus,
+  Pencil,
   Plus,
   SplitSquareHorizontal,
   X,
@@ -39,8 +40,14 @@ interface DetalleMesaModalProps {
   onDividir?: (mesaId: string) => Promise<void>
   onUpdateExtraPrecio?: (customizacionId: string, precioExtraGs: number) => Promise<void>
   updatingExtraId?: string | null
-  onUpdateItemRecargo?: (itemPedidoId: string, extraGs: number) => Promise<void>
+  onUpdateItemRecargo?: (
+    itemPedidoId: string,
+    extraGs: number,
+    options?: { mode?: 'line_total' | 'note_extra' }
+  ) => Promise<void>
   updatingItemId?: string | null
+  onAddProductoManual?: (nombre: string, precioGs: number) => Promise<void>
+  addingProductoManual?: boolean
   showOperationalActions?: boolean
   showSplitActions?: boolean
   showCerrarCuenta?: boolean
@@ -77,6 +84,21 @@ const normalizeExtraDisplayLabel = (value?: string | null) => {
   return raw.replace(/^nota\s*:\s*/i, '').trim()
 }
 
+const formatGsInput = (value: string) => {
+  const digits = value.replace(/\D/g, '')
+  if (!digits) return ''
+  const num = Number(digits)
+  if (!Number.isFinite(num)) return ''
+  return num.toLocaleString('es-PY')
+}
+
+const parseGsInput = (value: string) => {
+  const digits = value.replace(/\D/g, '')
+  if (!digits) return 0
+  const parsed = Number(digits)
+  return Number.isFinite(parsed) ? Math.max(0, Math.round(parsed)) : 0
+}
+
 export function DetalleMesaModal({
   mesa,
   reservasMesa,
@@ -100,6 +122,8 @@ export function DetalleMesaModal({
   updatingExtraId = null,
   onUpdateItemRecargo,
   updatingItemId = null,
+  onAddProductoManual,
+  addingProductoManual = false,
   showOperationalActions = true,
   showSplitActions = true,
   showCerrarCuenta = true,
@@ -109,7 +133,10 @@ export function DetalleMesaModal({
   const [editingExtraId, setEditingExtraId] = useState<string | null>(null)
   const [editingExtraRowKey, setEditingExtraRowKey] = useState<string | null>(null)
   const [editingItemId, setEditingItemId] = useState<string | null>(null)
+  const [editingNoteItemId, setEditingNoteItemId] = useState<string | null>(null)
   const [extraDraft, setExtraDraft] = useState('')
+  const [manualNombre, setManualNombre] = useState('')
+  const [manualPrecio, setManualPrecio] = useState('')
 
   useEffect(() => { setMounted(true) }, [])
 
@@ -119,7 +146,10 @@ export function DetalleMesaModal({
     setEditingExtraId(null)
     setEditingExtraRowKey(null)
     setEditingItemId(null)
+    setEditingNoteItemId(null)
     setExtraDraft('')
+    setManualNombre('')
+    setManualPrecio('')
   }, [mesa?.id])
 
   useEffect(() => {
@@ -130,10 +160,10 @@ export function DetalleMesaModal({
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [onClose])
 
-  const startEditExtra = (customizacionId: string, rowKey: string, currentExtra: number) => {
+  const startEditExtra = (customizacionId: string, rowKey: string, _currentExtra: number) => {
     setEditingExtraId(customizacionId)
     setEditingExtraRowKey(rowKey)
-    setExtraDraft(String(Math.max(0, Math.round(currentExtra))))
+    setExtraDraft('')
   }
 
   const cancelEditExtra = () => {
@@ -144,8 +174,7 @@ export function DetalleMesaModal({
 
   const saveEditExtra = async (customizacionId: string) => {
     if (!onUpdateExtraPrecio) return
-    const parsed = Number(extraDraft)
-    const extraGs = Number.isFinite(parsed) ? Math.max(0, Math.round(parsed)) : 0
+    const extraGs = parseGsInput(extraDraft)
     await onUpdateExtraPrecio(customizacionId, extraGs)
     setEditingExtraId(null)
     setEditingExtraRowKey(null)
@@ -154,7 +183,8 @@ export function DetalleMesaModal({
 
   const startEditItemRecargo = (itemId: string, currentExtra: number) => {
     setEditingItemId(itemId)
-    setExtraDraft(String(Math.max(0, Math.round(currentExtra))))
+    const safe = Math.max(0, Math.round(Number(currentExtra) || 0))
+    setExtraDraft(safe > 0 ? safe.toLocaleString('es-PY') : '')
   }
 
   const cancelEditItemRecargo = () => {
@@ -162,13 +192,41 @@ export function DetalleMesaModal({
     setExtraDraft('')
   }
 
+  const startEditNoteRecargo = (itemId: string, currentNoteExtra: number) => {
+    setEditingNoteItemId(itemId)
+    const safe = Math.max(0, Math.round(Number(currentNoteExtra) || 0))
+    setExtraDraft(safe > 0 ? safe.toLocaleString('es-PY') : '')
+  }
+
+  const cancelEditNoteRecargo = () => {
+    setEditingNoteItemId(null)
+    setExtraDraft('')
+  }
+
+  const saveEditNoteRecargo = async (itemId: string) => {
+    if (!onUpdateItemRecargo) return
+    const noteExtraGs = parseGsInput(extraDraft)
+    await onUpdateItemRecargo(itemId, noteExtraGs, { mode: 'note_extra' })
+    setEditingNoteItemId(null)
+    setExtraDraft('')
+  }
+
   const saveEditItemRecargo = async (itemId: string) => {
     if (!onUpdateItemRecargo) return
-    const parsed = Number(extraDraft)
-    const extraGs = Number.isFinite(parsed) ? Math.max(0, Math.round(parsed)) : 0
-    await onUpdateItemRecargo(itemId, extraGs)
+    const extraGs = parseGsInput(extraDraft)
+    await onUpdateItemRecargo(itemId, extraGs, { mode: 'line_total' })
     setEditingItemId(null)
     setExtraDraft('')
+  }
+
+  const handleAddProductoManual = async () => {
+    if (!onAddProductoManual) return
+    const nombre = manualNombre.trim()
+    const precioGs = Math.max(0, Math.round(Number(manualPrecio) || 0))
+    if (!nombre) return
+    await onAddProductoManual(nombre, precioGs)
+    setManualNombre('')
+    setManualPrecio('')
   }
 
   const estadoBotones = useMemo(() => {
@@ -247,7 +305,6 @@ export function DetalleMesaModal({
           <div>
             <p className="text-[11px] uppercase tracking-widest text-gray-400">Detalle de mesa</p>
             <h2 id="detalle-mesa-title" className="text-2xl sm:text-4xl font-black mt-0.5 sm:mt-1">Mesa #{mesa.numero}</h2>
-            <p className="text-xs sm:text-sm text-gray-500 mt-0.5 sm:mt-1">{mesa.nombre?.trim() || 'Sin alias'} · {mesa.capacidad} pax</p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <span className={`inline-flex items-center rounded-full border px-2.5 py-1 sm:px-3 sm:py-1.5 text-xs sm:text-sm font-semibold ${ESTADO_BADGE[mesa.estado]}`}>
@@ -342,27 +399,70 @@ export function DetalleMesaModal({
                         <p className="text-sm font-bold text-gray-500 uppercase tracking-wide mb-1">Pedido #{pedido.numero_pedido}</p>
                       )}
                       <div className="space-y-0.5">
-                        {pedido.items.map(item => (
-                          <div key={item.id} className="flex items-start justify-between gap-2 py-0.5">
+                        {pedido.items.map(item => {
+                          const allExtrasForPrice = (item.customizaciones ?? []).filter((c) => c.tipo === 'extra')
+                          const noteExtrasForPrice = allExtrasForPrice.filter((c) => {
+                            const extraText = (c.ingrediente_nombre ?? '').trim()
+                            const motivoText = (c.motivo ?? '').trim()
+                            return /^nota\s*:/i.test(extraText) || /^nota\s*:/i.test(motivoText)
+                          })
+                          const noteRecargoForPrice = noteExtrasForPrice.reduce(
+                            (sum, e) => sum + Math.max(0, Number(e.precio_extra ?? 0)),
+                            0
+                          )
+                          const subtotalSinNota = Math.max(0, Number(item.subtotal) - noteRecargoForPrice)
+                          return (
+                          <div key={item.id} className="flex items-baseline justify-between gap-1.5 py-0.5">
                             <span className="text-sm text-gray-700 dark:text-gray-300 flex-1 min-w-0">
-                              <span className="font-bold text-red-600 dark:text-red-400">{item.cantidad}x</span> {item.producto_nombre}
                               {(() => {
-                                const extras = (item.customizaciones ?? []).filter((c) => c.tipo === 'extra')
+                                return (
+                                  <span className="flex items-baseline min-w-0">
+                                    <span className="min-w-0 truncate leading-tight">
+                                      <span className="font-bold text-red-600 dark:text-red-400">{item.cantidad}x</span>{' '}
+                                      {item.producto_nombre}
+                                    </span>
+                                    <span
+                                      aria-hidden="true"
+                                      className="ml-[10px] mr-[10px] h-[1em] flex-1 min-w-[12px] border-b-2 border-dotted border-[#ccc] mb-[0.2em]"
+                                    />
+                                  </span>
+                                )
+                              })()}
+                              {(() => {
+                                const isManualItem = item.is_fuera_carta === true || item.producto_id == null
+                                const allExtras = (item.customizaciones ?? []).filter((c) => c.tipo === 'extra')
+                                const noteExtras = allExtras.filter((c) => {
+                                  const extraText = (c.ingrediente_nombre ?? '').trim()
+                                  const motivoText = (c.motivo ?? '').trim()
+                                  return /^nota\s*:/i.test(extraText) || /^nota\s*:/i.test(motivoText)
+                                })
+                                const extras = allExtras.filter((c) => !noteExtras.includes(c))
                                 const notaTexto = item.notas?.trim() ?? ''
+                                const isSystemRecargoNote = /^extra\s+recargo\s+por\s+nota\s*:/i.test(notaTexto)
                                 const notaNorm = normalizeRecargoText(notaTexto)
                                 const extraNormSet = new Set(
                                   extras
                                     .map((e) => normalizeRecargoText(e.ingrediente_nombre ?? ''))
                                     .filter(Boolean)
                                 )
-                                const showNotaLine = Boolean(notaNorm) && !extraNormSet.has(notaNorm)
+                                const showNotaLine =
+                                  !isSystemRecargoNote &&
+                                  !isManualItem &&
+                                  Boolean(notaNorm) &&
+                                  !extraNormSet.has(notaNorm)
                                 const base = Number(item.precio_unitario) * Number(item.cantidad)
                                 const subtotal = Number(item.subtotal)
                                 const totalRecargo = Math.max(0, subtotal - base)
                                 const sumExtras = extras.reduce((sum, e) => sum + Math.max(0, Number(e.precio_extra ?? 0)), 0)
-                                const hasNota = Boolean(notaTexto)
-                                const noteRecargo = Math.max(0, totalRecargo - sumExtras)
-                                const fallbackToFirstExtra = extras.length > 0 && noteRecargo > 0
+                                const noteRecargoFromRows = noteExtras.reduce(
+                                  (sum, e) => sum + Math.max(0, Number(e.precio_extra ?? 0)),
+                                  0
+                                )
+                                const noteRecargo = noteRecargoFromRows > 0
+                                  ? noteRecargoFromRows
+                                  : Math.max(0, totalRecargo - sumExtras)
+                                const fallbackToFirstExtra = !isManualItem && extras.length > 0 && noteRecargo > 0
+                                const subtotalSinNota = Math.max(0, subtotal - noteRecargo)
 
                                 return (
                                   <>
@@ -386,12 +486,11 @@ export function DetalleMesaModal({
                                                 {extraLabel}:
                                               </label>
                                               <input
-                                                type="number"
-                                                min={0}
-                                                step={1000}
+                                                type="text"
+                                                inputMode="numeric"
                                                 value={extraDraft}
-                                                onChange={(e) => setExtraDraft(e.target.value)}
-                                                className="w-28 rounded-md border border-amber-300 bg-white px-2 py-1 text-sm text-gray-700"
+                                                onChange={(e) => setExtraDraft(formatGsInput(e.target.value))}
+                                                className="w-28 rounded-md border border-amber-300 bg-white px-2 py-1 text-sm text-right text-gray-700 tabular-nums"
                                               />
                                               <button
                                                 type="button"
@@ -431,63 +530,102 @@ export function DetalleMesaModal({
 
                                     {showNotaLine && (
                                       <span className="mt-1 block">
-                                        {editingItemId === item.id && !fallbackToFirstExtra ? (
+                                        {editingNoteItemId === item.id ? (
                                           <span className="inline-flex items-center gap-1.5">
                                             <span className="text-sm text-gray-500">{notaTexto}</span>
                                             <input
-                                              type="number"
-                                              min={0}
-                                              step={1000}
+                                              type="text"
+                                              inputMode="numeric"
                                               value={extraDraft}
-                                              onChange={(e) => setExtraDraft(e.target.value)}
-                                              className="w-28 rounded-md border border-amber-300 bg-white px-2 py-1 text-sm text-gray-700"
+                                              onChange={(e) => setExtraDraft(formatGsInput(e.target.value))}
+                                              className="w-24 rounded-md border border-amber-300 bg-white px-2 py-1 text-sm text-right text-gray-700 tabular-nums"
                                             />
                                             <button
                                               type="button"
                                               disabled={updatingItemId === item.id}
-                                              onClick={() => void saveEditItemRecargo(item.id)}
-                                              className="rounded-md border border-emerald-300 bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700 disabled:opacity-60"
+                                              onClick={() => void saveEditNoteRecargo(item.id)}
+                                              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-emerald-300 bg-emerald-100 text-emerald-700 disabled:opacity-60"
+                                              aria-label="Guardar extra de nota"
                                             >
-                                              {updatingItemId === item.id ? '...' : 'OK'}
+                                              {updatingItemId === item.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
                                             </button>
                                             <button
                                               type="button"
                                               disabled={updatingItemId === item.id}
-                                              onClick={cancelEditItemRecargo}
-                                              className="rounded-md border border-gray-300 bg-gray-50 px-2 py-1 text-xs font-semibold text-gray-600 disabled:opacity-60"
+                                              onClick={cancelEditNoteRecargo}
+                                              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-gray-300 bg-gray-50 text-gray-600 disabled:opacity-60"
+                                              aria-label="Cancelar extra de nota"
                                             >
-                                              X
+                                              <X className="h-3.5 w-3.5" />
                                             </button>
                                           </span>
                                         ) : (
-                                          <span className="inline-flex items-center gap-2">
-                                            <span className="text-sm text-gray-500">{notaTexto}</span>
-                                            {noteRecargo > 0 && (
-                                              <span className="text-sm text-amber-700 dark:text-amber-400">
-                                                Gs. {Math.round(noteRecargo).toLocaleString('es-PY')}
-                                              </span>
-                                            )}
-                                            {!fallbackToFirstExtra && (
-                                              <button
-                                                type="button"
-                                                disabled={!onUpdateItemRecargo}
-                                                onClick={() => onUpdateItemRecargo ? startEditItemRecargo(item.id, noteRecargo) : undefined}
-                                                className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700 disabled:opacity-50"
-                                              >
-                                                Editar
-                                              </button>
-                                            )}
-                                          </span>
+                                          <button
+                                            type="button"
+                                            disabled={!onUpdateItemRecargo}
+                                            onClick={() => startEditNoteRecargo(item.id, noteRecargo)}
+                                            className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-amber-700 dark:hover:text-amber-400 disabled:opacity-50"
+                                            aria-label="Ajustar extra de nota"
+                                          >
+                                            <span>{notaTexto}</span>
+                                            <span className="text-amber-700 dark:text-amber-400 tabular-nums">
+                                              Gs. {Math.round(noteRecargo).toLocaleString('es-PY')}
+                                            </span>
+                                            <Pencil className="h-3.5 w-3.5 self-center" />
+                                          </button>
                                         )}
                                       </span>
                                     )}
+
                                   </>
                                 )
                               })()}
                             </span>
-                            <span className="text-sm font-semibold text-gray-600 dark:text-gray-400 shrink-0 tabular-nums">Gs.{item.subtotal.toLocaleString('es-PY')}</span>
+                            <span className="shrink-0 flex items-center justify-end pl-2">
+                              {editingItemId === item.id ? (
+                                <span className="inline-flex items-center justify-end gap-1.5">
+                                  <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    value={extraDraft}
+                                    onChange={(e) => setExtraDraft(formatGsInput(e.target.value))}
+                                    className="w-24 rounded-md border border-amber-300 bg-white px-2 py-1 text-sm text-right text-gray-700 tabular-nums"
+                                  />
+                                  <button
+                                    type="button"
+                                    disabled={updatingItemId === item.id}
+                                    onClick={() => void saveEditItemRecargo(item.id)}
+                                    className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-emerald-300 bg-emerald-100 text-emerald-700 disabled:opacity-60"
+                                    aria-label="Guardar monto"
+                                  >
+                                    {updatingItemId === item.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={updatingItemId === item.id}
+                                    onClick={cancelEditItemRecargo}
+                                    className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-gray-300 bg-gray-50 text-gray-600 disabled:opacity-60"
+                                    aria-label="Cancelar edición de monto"
+                                  >
+                                    <X className="h-3.5 w-3.5" />
+                                  </button>
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  disabled={!onUpdateItemRecargo}
+                                  onClick={() => onUpdateItemRecargo ? startEditItemRecargo(item.id, subtotalSinNota) : undefined}
+                                  className="inline-flex items-center justify-end gap-1.5 text-sm font-semibold text-gray-600 dark:text-gray-400 tabular-nums hover:text-amber-700 dark:hover:text-amber-400 disabled:opacity-50"
+                                  aria-label="Ajustar monto"
+                                >
+                                  <span>Gs.{Math.round(subtotalSinNota).toLocaleString('es-PY')}</span>
+                                  <Pencil className="h-3.5 w-3.5 self-center" />
+                                </button>
+                              )}
+                            </span>
                           </div>
-                        ))}
+                          )
+                        })}
                       </div>
                       {pi < resumenVisible.pedidos.length - 1 && <hr className="border-red-100 dark:border-red-900/30 my-1.5" />}
                     </div>
@@ -498,6 +636,36 @@ export function DetalleMesaModal({
                   </div>
                 </>
               )}
+            </div>
+          </section>
+
+          <section className="rounded-xl border border-amber-200 dark:border-amber-900/40 p-3">
+            <p className="text-xs font-semibold text-amber-700 dark:text-amber-300 mb-2">Agregar producto</p>
+            <div className="grid grid-cols-1 sm:grid-cols-[1fr,130px,110px] gap-2">
+              <input
+                type="text"
+                value={manualNombre}
+                onChange={(e) => setManualNombre(e.target.value)}
+                placeholder="Nombre del producto"
+                className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm"
+              />
+              <input
+                type="number"
+                min={0}
+                step={1000}
+                value={manualPrecio}
+                onChange={(e) => setManualPrecio(e.target.value)}
+                placeholder="Precio"
+                className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm"
+              />
+              <button
+                type="button"
+                onClick={() => void handleAddProductoManual()}
+                disabled={!onAddProductoManual || addingProductoManual || !manualNombre.trim()}
+                className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-700 disabled:opacity-50"
+              >
+                {addingProductoManual ? 'Agregando...' : 'Agregar'}
+              </button>
             </div>
           </section>
 

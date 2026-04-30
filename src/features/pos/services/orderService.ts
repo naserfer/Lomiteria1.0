@@ -113,7 +113,10 @@ export const orderService = {
       .map(({ item }) => item)
 
     const puntosAuto = calcularPuntosAutomaticos(total, retornoPct)
-    const puntosBonus = items.reduce((sum, item) => sum + ((item.puntos_extra ?? 0) * item.cantidad), 0)
+    const puntosBonus = items.reduce(
+      (sum, item) => (item.is_manual ? sum : sum + ((item.puntos_extra ?? 0) * item.cantidad)),
+      0
+    )
     const puntosGenerados = puntosAuto + puntosBonus
 
     const canjeItems = items.filter((i) => i.modo === 'canje' && i.tipo === 'producto')
@@ -155,9 +158,11 @@ export const orderService = {
     // Insertar items del pedido (notas = texto de modificaciones para el ticket de cocina)
     const itemsToInsert = itemsOrdenados.map((item, idx) => ({
       pedido_id: pedido.id,
-      producto_id: item.producto_id,
+      producto_id: item.is_manual ? null : item.producto_id,
       producto_nombre:
-        item.modo === 'canje' && item.tipo === 'producto' ? `CANJE: ${item.nombre}` : item.nombre,
+        item.modo === 'canje' && item.tipo === 'producto'
+          ? `CANJE: ${item.nombre}`
+          : item.nombre,
       cantidad: item.cantidad,
       // En canje el total se cobra con puntos, por eso evitamos mostrar precios en tickets (manteniendo total=0).
       precio_unitario: item.modo === 'canje' && item.tipo === 'producto' ? 0 : item.precio,

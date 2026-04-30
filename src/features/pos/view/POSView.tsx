@@ -56,6 +56,7 @@ export default function POSView() {
   const [loadingResumenMesa, setLoadingResumenMesa] = useState(false)
   const [updatingExtraPrecioId, setUpdatingExtraPrecioId] = useState<string | null>(null)
   const [updatingItemRecargoId, setUpdatingItemRecargoId] = useState<string | null>(null)
+  const [addingManualItemInDetalle, setAddingManualItemInDetalle] = useState(false)
   const [detalleMesaFeedback, setDetalleMesaFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const [mesaToast, setMesaToast] = useState<string | null>(null)
 
@@ -383,18 +384,53 @@ export default function POSView() {
     }
   }
 
-  const handleUpdateItemRecargoModal = async (itemPedidoId: string, extraGs: number) => {
+  const handleUpdateItemRecargoModal = async (
+    itemPedidoId: string,
+    extraGs: number,
+    options?: { mode?: 'line_total' | 'note_extra' }
+  ) => {
     if (!tenant?.id || !mesaObj) return
     setUpdatingItemRecargoId(itemPedidoId)
     try {
-      await mesasService.updateItemPedidoRecargo({ tenantId: tenant.id, itemPedidoId, extraGs })
-      setDetalleMesaFeedback({ type: 'success', message: `Recargo actualizado a Gs. ${extraGs.toLocaleString('es-PY')}.` })
+      await mesasService.updateItemPedidoRecargo({
+        tenantId: tenant.id,
+        itemPedidoId,
+        extraGs,
+        mode: options?.mode,
+      })
+      setDetalleMesaFeedback({
+        type: 'success',
+        message:
+          options?.mode === 'note_extra'
+            ? `Extra de nota actualizado a Gs. ${extraGs.toLocaleString('es-PY')}.`
+            : `Precio actualizado a Gs. ${extraGs.toLocaleString('es-PY')}.`,
+      })
       await reloadResumenMesa(mesaObj, tenant.id)
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'No se pudo actualizar el recargo de nota.'
+      const msg = e instanceof Error ? e.message : 'No se pudo actualizar el precio.'
       setDetalleMesaFeedback({ type: 'error', message: msg })
     } finally {
       setUpdatingItemRecargoId(null)
+    }
+  }
+
+  const handleAddProductoManualModal = async (nombre: string, precioGs: number) => {
+    if (!tenant?.id || !mesaObj) return
+    setAddingManualItemInDetalle(true)
+    try {
+      await mesasService.addProductoManualEnMesa({
+        tenantId: tenant.id,
+        mesaId: mesaObj.id,
+        nombre,
+        precioGs,
+      })
+      setDetalleMesaFeedback({ type: 'success', message: `Producto agregado: ${nombre} (Gs. ${precioGs.toLocaleString('es-PY')}).` })
+      await reloadResumenMesa(mesaObj, tenant.id)
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'No se pudo agregar el producto.'
+      setDetalleMesaFeedback({ type: 'error', message: msg })
+    } finally {
+      setAddingManualItemInDetalle(false)
     }
   }
 
@@ -813,6 +849,7 @@ export default function POSView() {
               darkMode={darkMode}
               onEditItem={(itemId) => setEditingItemId(itemId)}
               isMesaOrder={!!mesaId}
+              allowManualItem={tenant?.id === TENANT_ID_ORIENTAL}
             />
           </div>
         </div>
@@ -895,6 +932,8 @@ export default function POSView() {
           updatingExtraId={updatingExtraPrecioId}
           onUpdateItemRecargo={handleUpdateItemRecargoModal}
           updatingItemId={updatingItemRecargoId}
+          onAddProductoManual={handleAddProductoManualModal}
+          addingProductoManual={addingManualItemInDetalle}
           showOperationalActions={false}
           showSplitActions={false}
           showCerrarCuenta

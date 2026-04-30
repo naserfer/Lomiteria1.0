@@ -114,6 +114,7 @@ export const mesasService = {
     tenantId: string
     itemPedidoId: string
     extraGs: number
+    mode?: 'line_total' | 'note_extra'
   }): Promise<{
     pedidoId: string
     itemPedidoId: string
@@ -122,12 +123,14 @@ export const mesasService = {
   }> {
     const supabase = createClient()
     const extraGs = Math.max(0, Math.round(Number(params.extraGs) || 0))
+    const mode = params.mode ?? 'line_total'
 
     const { data: itemRow, error: itemError } = await supabase
       .from('items_pedido')
       .select(`
         id,
         pedido_id,
+        producto_id,
         cantidad,
         precio_unitario,
         subtotal,
@@ -156,41 +159,15 @@ export const mesasService = {
     }
 
     const cantidad = Math.max(1, Number(itemRow.cantidad ?? 1))
-    const precioUnitario = Number(itemRow.precio_unitario ?? 0)
     const subtotalActual = Number(itemRow.subtotal ?? 0)
     const totalPedidoActual = Number(pedido.total ?? 0)
-
-    const subtotalBase = Math.max(0, precioUnitario * cantidad)
-    const nuevoSubtotal = subtotalBase + extraGs
-    const delta = nuevoSubtotal - subtotalActual
-    const nuevoTotalPedido = Math.max(0, totalPedidoActual + delta)
-
+    const baseActual = Math.max(0, Number(itemRow.precio_unitario ?? 0) * cantidad)
+    const recargosActuales = Math.max(0, subtotalActual - baseActual)
     const nowIso = new Date().toISOString()
-    const { error: updateItemError } = await supabase
-      .from('items_pedido')
-      .update({ subtotal: nuevoSubtotal })
-      .eq('id', params.itemPedidoId)
 
-    if (updateItemError) {
-      throw new Error(`No se pudo actualizar el subtotal del ítem: ${updateItemError.message}`)
-    }
-
-    const { error: updatePedidoError } = await supabase
-      .from('pedidos')
-      .update({ total: nuevoTotalPedido, updated_at: nowIso })
-      .eq('id', itemRow.pedido_id)
-      .eq('tenant_id', params.tenantId)
-
-    if (updatePedidoError) {
-      throw new Error(`No se pudo actualizar el total del pedido: ${updatePedidoError.message}`)
-    }
-
-    // Persistir recargo de nota como customización tipo "extra" (sin ingrediente_id)
-    // para que impresión y detalle lo traten igual que extras de botón "+".
-    const motivoNota = (itemRow.notas ?? '').trim() || 'Recargo por nota'
     const { data: noteExtraRows, error: noteExtraError } = await supabase
       .from('items_pedido_customizacion')
-      .select('id')
+      .select('id, precio_extra')
       .eq('item_pedido_id', params.itemPedidoId)
       .eq('tipo', 'extra')
       .is('ingrediente_id', null)
@@ -201,65 +178,117 @@ export const mesasService = {
       throw new Error(`No se pudo sincronizar customización de nota: ${noteExtraError.message}`)
     }
 
-    const noteExtraId = noteExtraRows?.[0]?.id
-    const extraRowsToDelete = (noteExtraRows ?? []).slice(1).map((r) => r.id)
+    const { data: allExtraRows, error: allExtraError } = await supabase
+      .from('items_pedido_customizacion')
+      .select('precio_extra')
+      .eq('item_pedido_id', params.itemPedidoId)
+      .eq('tipo', 'extra')
 
-    if (extraGs > 0) {
-      const payload = {
-        tipo: 'extra' as const,
-        ingrediente_id: null,
-        cantidad_original: 0,
-        cantidad_ajustada: 1,
-        precio_extra: extraGs,
-        motivo: `Nota: ${motivoNota}`,
-      }
-
-      if (noteExtraId) {
-        const { error: updateNoteExtraError } = await supabase
-          .from('items_pedido_customizacion')
-          .update(payload)
-          .eq('id', noteExtraId)
-          .eq('item_pedido_id', params.itemPedidoId)
-        if (updateNoteExtraError) {
-          throw new Error(`No se pudo actualizar recargo de nota en customizaciones: ${updateNoteExtraError.message}`)
-        }
-      } else {
-        const { error: insertNoteExtraError } = await supabase
-          .from('items_pedido_customizacion')
-          .insert({
-            item_pedido_id: params.itemPedidoId,
-            ...payload,
-          })
-        if (insertNoteExtraError) {
-          throw new Error(`No se pudo insertar recargo de nota en customizaciones: ${insertNoteExtraError.message}`)
-        }
-      }
-    } else if (noteExtraId) {
-      const idsToDelete = [noteExtraId, ...extraRowsToDelete]
-      const { error: deleteNoteExtraError } = await supabase
-        .from('items_pedido_customizacion')
-        .delete()
-        .in('id', idsToDelete)
-      if (deleteNoteExtraError) {
-        throw new Error(`No se pudo limpiar recargo de nota en customizaciones: ${deleteNoteExtraError.message}`)
-      }
+    if (allExtraError) {
+      throw new Error(`No se pudieron cargar extras del ítem: ${allExtraError.message}`)
     }
 
-    if (extraRowsToDelete.length > 0 && extraGs > 0) {
-      const { error: cleanupNoteExtrasError } = await supabase
-        .from('items_pedido_customizacion')
-        .delete()
-        .in('id', extraRowsToDelete)
-      if (cleanupNoteExtrasError) {
-        throw new Error(`No se pudo limpiar duplicados de recargo de nota: ${cleanupNoteExtrasError.message}`)
+    const noteExtraIds = (noteExtraRows ?? []).map((r) => r.id)
+    const noteExtraId = noteExtraIds[0] ?? null
+    const duplicateIds = noteExtraIds.slice(1)
+    const noteExtraActual = (noteExtraRows ?? []).reduce(
+      (sum, row) => sum + Math.max(0, Number(row.precio_extra ?? 0)),
+      0
+    )
+    const extrasRegistrados = (allExtraRows ?? []).reduce(
+      (sum, row) => sum + Math.max(0, Number(row.precio_extra ?? 0)),
+      0
+    )
+    const otrosRecargosRegistrados = Math.max(0, extrasRegistrados - noteExtraActual)
+    const residualNoRegistrado = Math.max(0, recargosActuales - extrasRegistrados)
+
+    const baseFinal = mode === 'line_total' ? extraGs : baseActual
+    const noteExtraFinal = mode === 'note_extra' ? extraGs : noteExtraActual
+    const subtotalFinal = Math.max(
+      0,
+      baseFinal + otrosRecargosRegistrados + noteExtraFinal + residualNoRegistrado
+    )
+    const precioUnitarioFinal = Math.max(0, Math.round(baseFinal / cantidad))
+    const deltaFinal = subtotalFinal - subtotalActual
+    const totalPedidoFinal = Math.max(0, totalPedidoActual + deltaFinal)
+
+    const { error: updateItemError } = await supabase
+      .from('items_pedido')
+      .update({ precio_unitario: precioUnitarioFinal, subtotal: subtotalFinal })
+      .eq('id', params.itemPedidoId)
+
+    if (updateItemError) {
+      throw new Error(`No se pudo actualizar subtotal del ítem: ${updateItemError.message}`)
+    }
+
+    const { error: updatePedidoError } = await supabase
+      .from('pedidos')
+      .update({ total: totalPedidoFinal, updated_at: nowIso })
+      .eq('id', itemRow.pedido_id)
+      .eq('tenant_id', params.tenantId)
+
+    if (updatePedidoError) {
+      throw new Error(`No se pudo actualizar el total del pedido: ${updatePedidoError.message}`)
+    }
+
+    if (mode === 'note_extra') {
+      if (noteExtraFinal > 0) {
+        const motivoNota = (itemRow.notas ?? '').trim() || 'Recargo por nota'
+        const payload = {
+          tipo: 'extra' as const,
+          ingrediente_id: null,
+          cantidad_original: 0,
+          cantidad_ajustada: 1,
+          precio_extra: noteExtraFinal,
+          motivo: `Nota: ${motivoNota}`,
+        }
+
+        if (noteExtraId) {
+          const { error: updateNoteExtraError } = await supabase
+            .from('items_pedido_customizacion')
+            .update(payload)
+            .eq('id', noteExtraId)
+            .eq('item_pedido_id', params.itemPedidoId)
+          if (updateNoteExtraError) {
+            throw new Error(`No se pudo actualizar recargo de nota en customizaciones: ${updateNoteExtraError.message}`)
+          }
+        } else {
+          const { error: insertNoteExtraError } = await supabase
+            .from('items_pedido_customizacion')
+            .insert({
+              item_pedido_id: params.itemPedidoId,
+              ...payload,
+            })
+          if (insertNoteExtraError) {
+            throw new Error(`No se pudo insertar recargo de nota en customizaciones: ${insertNoteExtraError.message}`)
+          }
+        }
+      } else if (noteExtraIds.length > 0) {
+        const { error: deleteNoteExtraError } = await supabase
+          .from('items_pedido_customizacion')
+          .delete()
+          .in('id', noteExtraIds)
+        if (deleteNoteExtraError) {
+          throw new Error(`No se pudo limpiar recargo de nota en customizaciones: ${deleteNoteExtraError.message}`)
+        }
+      }
+
+      if (duplicateIds.length > 0) {
+        const { error: cleanupDupError } = await supabase
+          .from('items_pedido_customizacion')
+          .delete()
+          .in('id', duplicateIds)
+        if (cleanupDupError) {
+          throw new Error(`No se pudo limpiar duplicados de recargo de nota: ${cleanupDupError.message}`)
+        }
       }
     }
 
     return {
       pedidoId: itemRow.pedido_id,
       itemPedidoId: itemRow.id,
-      nuevoSubtotal,
-      nuevoTotalPedido,
+      nuevoSubtotal: subtotalFinal,
+      nuevoTotalPedido: totalPedidoFinal,
     }
   },
 
@@ -792,6 +821,7 @@ export const mesasService = {
         created_at,
         items_pedido (
           id,
+          producto_id,
           producto_nombre,
           cantidad,
           precio_unitario,
@@ -829,7 +859,7 @@ export const mesasService = {
       }
       const resumen = byMesa.get(mesaId)!
       const items = ((p.items_pedido ?? []) as Array<{
-        id: string; producto_nombre: string; cantidad: number
+        id: string; producto_id: string | null; producto_nombre: string; cantidad: number
         precio_unitario: number; subtotal: number; notas: string | null
         items_pedido_customizacion?: Array<{
           id: string
@@ -847,6 +877,7 @@ export const mesasService = {
         created_at: p.created_at,
         items: items.map((item) => ({
           ...item,
+          is_fuera_carta: item.producto_id == null,
           customizaciones: (item.items_pedido_customizacion ?? []).map((c) => ({
             id: c.id,
             tipo: c.tipo,
@@ -862,5 +893,54 @@ export const mesasService = {
     }
 
     return Array.from(byMesa.values())
+  },
+
+  async addProductoManualEnMesa(params: {
+    tenantId: string
+    mesaId: string
+    nombre: string
+    precioGs: number
+  }): Promise<void> {
+    const supabase = createClient()
+    const nombre = params.nombre.trim()
+    const precio = Math.max(0, Math.round(Number(params.precioGs) || 0))
+    if (!nombre) throw new Error('Ingresá el nombre del producto.')
+
+    const { data: pedido, error: pedidoError } = await supabase
+      .from('pedidos')
+      .select('id, total')
+      .eq('tenant_id', params.tenantId)
+      .eq('mesa_id', params.mesaId)
+      .in('estado_pedido', ['EDIT', 'FACT'])
+      .neq('estado', 'cancelado')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (pedidoError) throw new Error(`No se pudo obtener el pedido de mesa: ${pedidoError.message}`)
+    if (!pedido) throw new Error('No hay pedido activo en esta mesa para agregar producto.')
+
+    const { error: insertItemError } = await supabase
+      .from('items_pedido')
+      .insert({
+        pedido_id: pedido.id,
+        producto_id: null,
+        producto_nombre: nombre,
+        cantidad: 1,
+        precio_unitario: precio,
+        subtotal: precio,
+        notas: null,
+      })
+
+    if (insertItemError) throw new Error(`No se pudo agregar el producto: ${insertItemError.message}`)
+
+    const totalActual = Number(pedido.total ?? 0)
+    const { error: updatePedidoError } = await supabase
+      .from('pedidos')
+      .update({ total: totalActual + precio, updated_at: new Date().toISOString() })
+      .eq('id', pedido.id)
+      .eq('tenant_id', params.tenantId)
+
+    if (updatePedidoError) throw new Error(`No se pudo actualizar el total del pedido: ${updatePedidoError.message}`)
   },
 }

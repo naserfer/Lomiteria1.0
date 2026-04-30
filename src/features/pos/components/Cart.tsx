@@ -49,6 +49,7 @@ interface Props {
   darkMode?: boolean
   onEditItem?: (itemId: string) => void
   isMesaOrder?: boolean
+  allowManualItem?: boolean
 }
 
 const normalizeExtraToken = (value: string) =>
@@ -76,10 +77,12 @@ export default function Cart({
   darkMode,
   onEditItem,
   isMesaOrder = false,
+  allowManualItem = false,
 }: Props) {
   const { tenant, hasDelivery } = useTenant()
-  const { items, cliente, tipo, removeItem, updateQuantity, getTotal, getTotalPuntos, setTipo, upsertSauceItem } = useCartStore()
+  const { items, cliente, tipo, removeItem, updateQuantity, getTotal, getTotalPuntos, setTipo, upsertSauceItem, addManualItem } = useCartStore()
   const [saucesOpen, setSaucesOpen] = useState(false)
+  const [manualItemName, setManualItemName] = useState('')
   const orderTypeInactiveClasses = darkMode
     ? 'bg-gray-700/60 text-gray-200 border-gray-600 hover:bg-gray-600'
     : 'bg-gray-100 text-gray-700 border-gray-200 hover:bg-gray-200'
@@ -105,6 +108,13 @@ export default function Cart({
     })
     return map
   }, [sauceItems])
+
+  const handleAddManualItem = () => {
+    const cleanName = manualItemName.trim()
+    if (!cleanName) return
+    addManualItem(cleanName.slice(0, 80))
+    setManualItemName('')
+  }
 
   return (
     <div
@@ -140,9 +150,9 @@ export default function Cart({
                   <button
                     type="button"
                     onClick={() => onEditItem?.(item.id)}
-                    disabled={!onEditItem}
+                    disabled={!onEditItem || item.is_manual}
                     className={`flex-1 min-w-0 rounded-xl border px-2.5 py-2 text-left transition ${
-                      onEditItem
+                      onEditItem && !item.is_manual
                         ? darkMode
                           ? 'border-gray-600 bg-gray-700/40 hover:border-orange-400/60 hover:bg-gray-700'
                           : 'border-gray-200 bg-gray-100/80 hover:border-orange-300 hover:bg-orange-50/50'
@@ -161,17 +171,22 @@ export default function Cart({
                           COMBO
                         </span>
                       )}
+                      {item.is_manual && (
+                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">
+                          MANUAL
+                        </span>
+                      )}
                     </div>
                     <div className={`mt-0.5 text-xs ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                      Tocar para editar ingredientes
+                      {item.is_manual ? 'Precio se carga al cerrar cuenta' : 'Tocar para editar ingredientes'}
                     </div>
                   </button>
                   <button
                     type="button"
                     onClick={() => onEditItem?.(item.id)}
-                    disabled={!onEditItem}
+                    disabled={!onEditItem || item.is_manual}
                     className={`min-h-[44px] shrink-0 inline-flex items-center gap-1.5 px-3 rounded-xl text-xs font-semibold transition ${
-                      onEditItem
+                      onEditItem && !item.is_manual
                         ? darkMode
                           ? 'bg-gray-800 text-orange-200 hover:bg-gray-700'
                           : 'bg-orange-50 text-orange-700 border border-orange-200 hover:bg-orange-100'
@@ -340,6 +355,42 @@ export default function Cart({
           ))
         )}
       </div>
+
+      {allowManualItem && (
+        <div className={`flex-shrink-0 p-3 border-t ${darkMode ? 'bg-gray-800' : 'bg-white'}`}>
+          <div className={`w-full p-2 rounded-lg border ${darkMode ? 'border-amber-500/30 bg-amber-500/5' : 'border-amber-200 bg-amber-50/60'}`}>
+            <p className={`text-[11px] font-semibold mb-2 ${darkMode ? 'text-amber-200' : 'text-amber-700'}`}>
+              Item rápido (fuera de carta)
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                value={manualItemName}
+                onChange={(e) => setManualItemName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    handleAddManualItem()
+                  }
+                }}
+                placeholder="Ej: Huevo frito"
+                className={`flex-1 rounded-lg border px-2.5 py-2 text-xs ${
+                  darkMode
+                    ? 'border-gray-600 bg-gray-700 text-gray-100 placeholder:text-gray-400'
+                    : 'border-gray-200 bg-white text-gray-900 placeholder:text-gray-400'
+                }`}
+              />
+              <button
+                type="button"
+                onClick={handleAddManualItem}
+                disabled={!manualItemName.trim()}
+                className="rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
+              >
+                Agregar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Sección fija inferior - siempre visible */}
       {items.length > 0 && (

@@ -60,11 +60,13 @@ export interface PedidoDivision {
 
 export interface ItemResumenMesa {
   id: string
+  producto_id: string | null
   producto_nombre: string
   cantidad: number
   precio_unitario: number
   subtotal: number
   notas: string | null
+  is_fuera_carta?: boolean
   customizaciones?: Array<{
     id: string
     tipo: 'extra' | 'removido' | 'modificado'
