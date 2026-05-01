@@ -64,6 +64,9 @@ export function MesaPickerScreen({ tenantId, onSinMesa }: MesaPickerScreenProps)
   const [mesaFeedbackById, setMesaFeedbackById] = useState<Record<string, { type: 'success' | 'error'; message: string }>>({})
   const [resumenByMesa,  setResumenByMesa]  = useState<Record<string, ResumenMesa>>({})
   const [loadingResumen, setLoadingResumen] = useState(false)
+  const [updatingExtraPrecioId, setUpdatingExtraPrecioId] = useState<string | null>(null)
+  const [updatingItemRecargoId, setUpdatingItemRecargoId] = useState<string | null>(null)
+  const [addingManualItemMesaId, setAddingManualItemMesaId] = useState<string | null>(null)
 
   const fetchResumenes = useCallback(async (mesasData: Mesa[]) => {
     const ocupadas = mesasData.filter(m => m.estado === 'ocupada')
@@ -175,6 +178,90 @@ export function MesaPickerScreen({ tenantId, onSinMesa }: MesaPickerScreenProps)
     }
   }, [tenantId, usuario?.id, fetchMesas])
 
+  const handleUpdateExtraPrecio = useCallback(async (customizacionId: string, precioExtraGs: number) => {
+    if (!selectedMesaId) return
+    setUpdatingExtraPrecioId(customizacionId)
+    try {
+      await mesasService.updateItemCustomizacionExtraPrecio({
+        tenantId,
+        customizacionId,
+        precioExtraGs,
+      })
+      setMesaFeedbackById(prev => ({
+        ...prev,
+        [selectedMesaId]: { type: 'success', message: `Extra actualizado a Gs. ${precioExtraGs.toLocaleString('es-PY')}.` },
+      }))
+      await fetchMesas(true)
+    } catch (e: any) {
+      setMesaFeedbackById(prev => ({
+        ...prev,
+        [selectedMesaId]: { type: 'error', message: e?.message ?? 'No se pudo actualizar el precio del extra.' },
+      }))
+    } finally {
+      setUpdatingExtraPrecioId(null)
+    }
+  }, [tenantId, selectedMesaId, fetchMesas])
+
+  const handleUpdateItemRecargo = useCallback(async (
+    itemPedidoId: string,
+    extraGs: number,
+    options?: { mode?: 'line_total' | 'note_extra' }
+  ) => {
+    if (!selectedMesaId) return
+    setUpdatingItemRecargoId(itemPedidoId)
+    try {
+      await mesasService.updateItemPedidoRecargo({
+        tenantId,
+        itemPedidoId,
+        extraGs,
+        mode: options?.mode,
+      })
+      setMesaFeedbackById(prev => ({
+        ...prev,
+        [selectedMesaId]: {
+          type: 'success',
+          message:
+            options?.mode === 'note_extra'
+              ? `Extra de nota actualizado a Gs. ${extraGs.toLocaleString('es-PY')}.`
+              : `Precio actualizado a Gs. ${extraGs.toLocaleString('es-PY')}.`,
+        },
+      }))
+      await fetchMesas(true)
+    } catch (e: any) {
+      setMesaFeedbackById(prev => ({
+        ...prev,
+        [selectedMesaId]: { type: 'error', message: e?.message ?? 'No se pudo actualizar el precio.' },
+      }))
+    } finally {
+      setUpdatingItemRecargoId(null)
+    }
+  }, [tenantId, selectedMesaId, fetchMesas])
+
+  const handleAddProductoManual = useCallback(async (nombre: string, precioGs: number) => {
+    if (!selectedMesaId) return
+    setAddingManualItemMesaId(selectedMesaId)
+    try {
+      await mesasService.addProductoManualEnMesa({
+        tenantId,
+        mesaId: selectedMesaId,
+        nombre,
+        precioGs,
+      })
+      setMesaFeedbackById(prev => ({
+        ...prev,
+        [selectedMesaId]: { type: 'success', message: `Producto agregado: ${nombre} (Gs. ${precioGs.toLocaleString('es-PY')}).` },
+      }))
+      await fetchMesas(true)
+    } catch (e: any) {
+      setMesaFeedbackById(prev => ({
+        ...prev,
+        [selectedMesaId]: { type: 'error', message: e?.message ?? 'No se pudo agregar el producto.' },
+      }))
+    } finally {
+      setAddingManualItemMesaId(null)
+    }
+  }, [tenantId, selectedMesaId, fetchMesas])
+
   const isBusy = navigatingTo !== null
 
   return (
@@ -285,9 +372,6 @@ export function MesaPickerScreen({ tenantId, onSinMesa }: MesaPickerScreenProps)
                       <div className="min-w-0">
                         <p className="text-[10px] uppercase tracking-widest text-gray-400 dark:text-gray-500">Mesa</p>
                         <h3 className="text-3xl font-black leading-none mt-0.5">#{mesa.numero}</h3>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5 truncate">
-                          {mesa.nombre?.trim() || 'Sin alias'} · {mesa.capacidad} pax
-                        </p>
                       </div>
                       <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${ESTADO_BADGE[mesa.estado]}`}>
                         {ESTADO_LABEL[mesa.estado]}
@@ -373,6 +457,12 @@ export function MesaPickerScreen({ tenantId, onSinMesa }: MesaPickerScreenProps)
         onClose={() => setSelectedMesaId(null)}
         onTomarPedido={handleSelect}
         onCerrarCuenta={handleCerrarCuentaMesa}
+        onUpdateExtraPrecio={handleUpdateExtraPrecio}
+        updatingExtraId={updatingExtraPrecioId}
+        onUpdateItemRecargo={handleUpdateItemRecargo}
+        updatingItemId={updatingItemRecargoId}
+        onAddProductoManual={handleAddProductoManual}
+        addingProductoManual={selectedMesaId ? addingManualItemMesaId === selectedMesaId : false}
         showOperationalActions={false}
         showSplitActions={false}
       />

@@ -72,6 +72,7 @@ export interface FacturaParaImpresion {
   numero_pedido: number
   mesa_numero: number | null
   saludo_final: string
+  metodo_cobro?: string | null
 
   emisor: FacturaEmisor
   receptor: FacturaReceptor

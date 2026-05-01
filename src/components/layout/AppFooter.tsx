@@ -32,7 +32,7 @@ export function AppFooter({
       }}
     >
       <div className="flex flex-col items-center justify-center leading-snug py-3">
-        <p>ARDENTIUM Software Technologies® 2025</p>
+        <p>ARDENTIUM Labs® 2025</p>
         {showVersionLabel && (
           <p className="mt-0.5 text-xs text-inherit opacity-80">
             {APP_VERSION_LABEL}

@@ -43,42 +43,22 @@ export function DashboardCards({ darkMode, role, hasMesas = false }: DashboardCa
     return hasMesas || isAdmin
   })
 
-  const topRow = visibleCards.slice(0, 3)
-  const bottomRow = visibleCards.slice(3)
-
   return (
     <>
-      <section className="max-w-6xl mx-auto space-y-8 px-3 md:px-0">
-        {/* First row: up to 3 cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {topRow.map((card) => (
-            <DashboardCardComponent
-              key={card.title}
-              card={card}
-              darkMode={darkMode}
-              isGlobalLoading={loadingHref !== null}
-              isThisCardLoading={loadingHref === card.href}
-              onNavigateStart={handleCardNavigate}
-            />
+      <section className="mx-auto w-full max-w-6xl px-3 pb-6 md:px-0">
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
+          {visibleCards.map((card) => (
+            <div key={card.title} className="h-full">
+              <DashboardCardComponent
+                card={card}
+                darkMode={darkMode}
+                isGlobalLoading={loadingHref !== null}
+                isThisCardLoading={loadingHref === card.href}
+                onNavigateStart={handleCardNavigate}
+              />
+            </div>
           ))}
         </div>
-
-        {/* Second row: remaining cards centered */}
-        {bottomRow.length > 0 && (
-          <div className="flex flex-wrap justify-center gap-8">
-            {bottomRow.map((card) => (
-              <div key={card.title} className="w-full md:flex-1 md:min-w-[280px] md:max-w-[362px]">
-                <DashboardCardComponent
-                  card={card}
-                  darkMode={darkMode}
-                  isGlobalLoading={loadingHref !== null}
-                  isThisCardLoading={loadingHref === card.href}
-                  onNavigateStart={handleCardNavigate}
-                />
-              </div>
-            ))}
-          </div>
-        )}
       </section>
 
       {showActivarModal && (

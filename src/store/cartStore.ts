@@ -37,7 +37,7 @@ export interface ComboProductItem {
 
 export interface CartItem {
   id: string
-  producto_id: string
+  producto_id: string | null
   nombre: string
   descripcion?: string
   precio: number
@@ -56,6 +56,8 @@ export interface CartItem {
   modo?: 'venta' | 'canje'
   /** Puntos requeridos por unidad para canjear este producto */
   puntos_canje?: number
+  /** Item inventado en POS (no catalogado) */
+  is_manual?: boolean
 }
 
 interface CartState {
@@ -68,6 +70,7 @@ interface CartState {
   upsertSauceItem: (producto: { id: string; nombre: string; descripcion?: string; precio: number }, cantidad: number) => void
   addComboItem: (combo: { id: string; nombre: string; descripcion?: string; precio: number; comboItems: ComboProductItem[] }) => void
   addCanjeItem: (item: { id: string; nombre: string; descripcion?: string; puntos_canje: number; cantidad?: number }) => void
+  addManualItem: (nombre: string) => void
   removeItem: (itemId: string) => void
   updateQuantity: (itemId: string, cantidad: number) => void
   updateItemCustomization: (itemId: string, customization: CartItemCustomization | null, extraCostPerUnit: number) => void
@@ -302,6 +305,30 @@ export const useCartStore = create<CartState>((set, get) => ({
     })
   },
 
+  addManualItem: (nombre) => {
+    const cleanName = nombre.trim()
+    if (!cleanName) return
+
+    set({
+      items: [
+        ...get().items,
+        {
+          id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `temp-${Date.now()}-${Math.random()}`,
+          producto_id: null,
+          nombre: cleanName,
+          precio: 0,
+          cantidad: 1,
+          subtotal: 0,
+          extraCostPerUnit: 0,
+          tipo: 'producto',
+          puntos_extra: 0,
+          modo: 'venta',
+          is_manual: true,
+        }
+      ]
+    })
+  },
+
   removeItem: (itemId) => {
     const nextItems = get().items.filter(item => item.id !== itemId)
 
@@ -431,7 +458,7 @@ export const useCartStore = create<CartState>((set, get) => ({
     const pct = normalizePuntosRetornoPct(retornoPct)
     const puntosAuto = calcularPuntosAutomaticos(total, pct)
     const puntosExtra = get().items.reduce(
-      (sum, item) => sum + ((item.puntos_extra ?? 0) * item.cantidad),
+      (sum, item) => (item.is_manual ? sum : sum + ((item.puntos_extra ?? 0) * item.cantidad)),
       0
     )
     const totalPuntos = puntosAuto + puntosExtra

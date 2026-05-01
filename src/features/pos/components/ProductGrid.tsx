@@ -3,6 +3,7 @@
 import { Plus, Star } from 'lucide-react'
 import { formatGuaranies } from '@/lib/utils/format'
 import type { Producto } from '../types/pos.types'
+import { useCartStore } from '@/store/cartStore'
 
 interface Props {
   products: Producto[]
@@ -20,7 +21,20 @@ function isCombo(product: Producto): boolean {
 }
 
 export default function ProductGrid({ products, onAddProduct, loading, verificandoCaja, darkMode, hideTitle }: Props) {
+  const { items, updateQuantity } = useCartStore()
   const canAdd = !verificandoCaja
+  const getSelectedQty = (product: Producto) => {
+    const targetTipo = isCombo(product) ? 'combo' : 'producto'
+    return items
+      .filter((it) => it.producto_id === product.id && it.tipo === targetTipo && it.modo !== 'canje')
+      .reduce((sum, it) => sum + it.cantidad, 0)
+  }
+  const decrementProduct = (product: Producto) => {
+    const targetTipo = isCombo(product) ? 'combo' : 'producto'
+    const linked = items.find((it) => it.producto_id === product.id && it.tipo === targetTipo && it.modo !== 'canje')
+    if (!linked) return
+    updateQuantity(linked.id, linked.cantidad - 1)
+  }
   if (loading) {
     return (
       <div className={`rounded-2xl shadow-lg p-4 sm:p-6 ${darkMode ? 'bg-gray-800' : 'bg-white'}`}>
@@ -60,66 +74,133 @@ export default function ProductGrid({ products, onAddProduct, loading, verifican
 
       {/* Mobile: lista compacta de filas */}
       <div className="flex flex-col gap-1.5 sm:hidden">
-        {products.map((product) => (
-          <button
-            key={product.id}
-            onClick={() => canAdd && onAddProduct(product)}
-            disabled={!canAdd}
-            title={!canAdd ? 'Verificando estado de caja...' : undefined}
-            className={`flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-left transition-colors active:scale-[0.98] ${
-              !canAdd
-                ? 'opacity-70 cursor-not-allowed'
-                : darkMode
-                  ? 'bg-gray-700/50 active:bg-gray-600'
-                  : 'bg-gray-50 active:bg-orange-50'
-            }`}
-          >
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <span className={`text-sm font-semibold truncate ${darkMode ? 'text-white' : 'text-gray-900'}`}>
-                  {product.nombre}
-                </span>
-                {isCombo(product) && (
-                  <span className="flex-shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-300">
-                    COMBO
-                  </span>
-                )}
-                {(product.puntos_extra ?? 0) > 0 && (
-                  <span className="flex-shrink-0 inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded bg-yellow-100 text-yellow-700 dark:bg-yellow-500/20 dark:text-yellow-300">
-                    <Star size={8} className="fill-current" />
-                    +{product.puntos_extra} pts
-                  </span>
-                )}
+        {products.map((product) => {
+          const selectedQty = getSelectedQty(product)
+          return (
+            <div
+              key={product.id}
+              role="button"
+              tabIndex={0}
+              onClick={() => canAdd && onAddProduct(product)}
+              onKeyDown={(e) => {
+                if ((e.key === 'Enter' || e.key === ' ') && canAdd) {
+                  e.preventDefault()
+                  onAddProduct(product)
+                }
+              }}
+              title={!canAdd ? 'Verificando estado de caja...' : undefined}
+              className={`w-full rounded-xl border px-3 py-2.5 text-left transition-colors active:scale-[0.98] ${
+                !canAdd
+                  ? 'cursor-not-allowed opacity-70'
+                  : darkMode
+                    ? 'bg-gray-700/50 active:bg-gray-600'
+                    : 'bg-gray-50 active:bg-orange-50'
+              } ${
+                selectedQty > 0
+                  ? darkMode
+                    ? 'border-orange-400 ring-1 ring-orange-400/40'
+                    : 'border-orange-400 ring-1 ring-orange-300/60'
+                  : darkMode
+                    ? 'border-gray-600'
+                    : 'border-gray-200'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className={`text-sm font-semibold truncate ${darkMode ? 'text-white' : 'text-gray-900'}`}>
+                      {product.nombre}
+                    </span>
+                    {isCombo(product) && (
+                      <span className="flex-shrink-0 rounded bg-purple-100 px-1.5 py-0.5 text-[9px] font-bold text-purple-700 dark:bg-purple-500/20 dark:text-purple-300">
+                        COMBO
+                      </span>
+                    )}
+                    {(product.puntos_extra ?? 0) > 0 && (
+                      <span className="flex-shrink-0 inline-flex items-center gap-0.5 rounded bg-yellow-100 px-1.5 py-0.5 text-[9px] font-bold text-yellow-700 dark:bg-yellow-500/20 dark:text-yellow-300">
+                        <Star size={8} className="fill-current" />
+                        +{product.puntos_extra} pts
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-sm font-bold text-orange-600 whitespace-nowrap">
+                    {formatGuaranies(product.precio)}
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  {selectedQty > 0 && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          decrementProduct(product)
+                        }}
+                        className={`h-8 w-8 rounded-full border text-sm font-bold ${
+                          darkMode
+                            ? 'border-gray-500 bg-gray-700 text-gray-200'
+                            : 'border-gray-300 bg-white text-gray-700'
+                        }`}
+                        aria-label={`Restar ${product.nombre}`}
+                      >
+                        -
+                      </button>
+                      <span className={`min-w-[1.5rem] text-center text-sm font-bold ${darkMode ? 'text-orange-300' : 'text-orange-700'}`}>
+                        {selectedQty}
+                      </span>
+                    </>
+                  )}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      canAdd && onAddProduct(product)
+                    }}
+                    className={`h-8 w-8 rounded-full flex items-center justify-center ${
+                      darkMode ? 'bg-orange-500/20 text-orange-400' : 'bg-orange-100 text-orange-600'
+                    }`}
+                    aria-label={`Agregar ${product.nombre}`}
+                  >
+                    <Plus size={16} strokeWidth={2.5} />
+                  </button>
+                </div>
               </div>
             </div>
-            <div className="text-sm font-bold text-orange-600 whitespace-nowrap">
-              {formatGuaranies(product.precio)}
-            </div>
-            <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
-              darkMode ? 'bg-orange-500/20 text-orange-400' : 'bg-orange-100 text-orange-600'
-            }`}>
-              <Plus size={16} strokeWidth={2.5} />
-            </div>
-          </button>
-        ))}
+          )
+        })}
       </div>
 
       {/* Tablet / Desktop: grid de cards */}
       <div className="hidden sm:grid sm:grid-cols-2 md:grid-cols-3 gap-3">
-        {products.map((product) => (
-          <button
+        {products.map((product) => {
+          const selectedQty = getSelectedQty(product)
+          return (
+          <div
             key={product.id}
+            role="button"
+            tabIndex={0}
             onClick={() => canAdd && onAddProduct(product)}
-            disabled={!canAdd}
+            onKeyDown={(e) => {
+              if ((e.key === 'Enter' || e.key === ' ') && canAdd) {
+                e.preventDefault()
+                onAddProduct(product)
+              }
+            }}
             title={!canAdd ? 'Verificando estado de caja...' : undefined}
-            className={`group relative p-4 rounded-xl border transition-all duration-200 text-left overflow-hidden ${
+            className={`group relative overflow-hidden rounded-xl border p-4 text-left transition-all duration-200 ${
               !canAdd
-                ? 'opacity-70 cursor-not-allowed border-gray-400/50'
+                ? 'cursor-not-allowed border-gray-400/50 opacity-70'
                 : `hover:border-orange-400 hover:shadow-lg ${
                     darkMode
-                      ? 'bg-gray-700/60 border-gray-600 hover:bg-gray-700'
-                      : 'bg-white border-gray-200 hover:bg-orange-50/40'
+                      ? 'border-gray-600 bg-gray-700/60 hover:bg-gray-700'
+                      : 'border-gray-200 bg-white hover:bg-orange-50/40'
                   }`
+            } ${
+              selectedQty > 0
+                ? darkMode
+                  ? 'border-orange-400 ring-1 ring-orange-400/40'
+                  : 'border-orange-500 ring-2 ring-orange-200'
+                : ''
             }`}
           >
             {isCombo(product) && (
@@ -149,18 +230,57 @@ export default function ProductGrid({ products, onAddProduct, loading, verifican
                 {product.descripcion}
               </div>
             ) : null}
+            {selectedQty > 0 && (
+              <div className={`mb-2 inline-flex rounded-lg px-2 py-0.5 text-xs font-bold ${
+                darkMode ? 'bg-orange-500/20 text-orange-300' : 'bg-orange-100 text-orange-700'
+              }`}>
+                En pedido: {selectedQty}
+              </div>
+            )}
             <div className="flex items-center justify-between">
               <span className="text-lg font-bold text-orange-600">
                 {formatGuaranies(product.precio)}
               </span>
-              <span className={`w-7 h-7 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity ${
-                darkMode ? 'bg-orange-500/20 text-orange-400' : 'bg-orange-100 text-orange-600'
-              }`}>
-                <Plus size={16} strokeWidth={2.5} />
-              </span>
+              <div className="flex items-center gap-1.5">
+                {selectedQty > 0 && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        decrementProduct(product)
+                      }}
+                      className={`h-7 w-7 rounded-full border text-sm font-bold ${
+                        darkMode
+                          ? 'border-gray-500 bg-gray-700 text-gray-200'
+                          : 'border-gray-300 bg-white text-gray-700'
+                      }`}
+                      aria-label={`Restar ${product.nombre}`}
+                    >
+                      -
+                    </button>
+                    <span className={`min-w-[1.25rem] text-center text-xs font-bold ${darkMode ? 'text-orange-300' : 'text-orange-700'}`}>
+                      {selectedQty}
+                    </span>
+                  </>
+                )}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    canAdd && onAddProduct(product)
+                  }}
+                  className={`h-7 w-7 rounded-full flex items-center justify-center ${
+                    darkMode ? 'bg-orange-500/20 text-orange-400' : 'bg-orange-100 text-orange-600'
+                  } ${selectedQty > 0 ? 'opacity-100' : 'opacity-70 group-hover:opacity-100'} transition-opacity`}
+                  aria-label={`Agregar ${product.nombre}`}
+                >
+                  <Plus size={16} strokeWidth={2.5} />
+                </button>
+              </div>
             </div>
-          </button>
-        ))}
+          </div>
+        )})}
       </div>
     </div>
   )
