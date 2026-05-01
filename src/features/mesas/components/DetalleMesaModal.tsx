@@ -12,14 +12,18 @@ import {
   Minus,
   Pencil,
   Plus,
+  RefreshCw,
   SplitSquareHorizontal,
   X,
 } from 'lucide-react'
 import type { EstadoMesa, Mesa, MesaReserva, ResumenMesa } from '../types/mesas.types'
+import { useRealtimeMesaDetalle } from '../hooks/useRealtimeMesaDetalle'
 
 type MetodoCobro = 'tarjeta' | 'efectivo'
 
 interface DetalleMesaModalProps {
+  /** Tenant actual; necesario para suscribir el listener realtime de la mesa. */
+  tenantId?: string | null
   mesa: Mesa | null
   reservasMesa: MesaReserva[]
   resumenPedido: ResumenMesa | null
@@ -100,6 +104,7 @@ const parseGsInput = (value: string) => {
 }
 
 export function DetalleMesaModal({
+  tenantId,
   mesa,
   reservasMesa,
   resumenPedido,
@@ -137,6 +142,7 @@ export function DetalleMesaModal({
   const [extraDraft, setExtraDraft] = useState('')
   const [manualNombre, setManualNombre] = useState('')
   const [manualPrecio, setManualPrecio] = useState('')
+  const [realtimeNotice, setRealtimeNotice] = useState<string | null>(null)
   const editInputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => { setMounted(true) }, [])
@@ -151,7 +157,23 @@ export function DetalleMesaModal({
     setExtraDraft('')
     setManualNombre('')
     setManualPrecio('')
+    setRealtimeNotice(null)
   }, [mesa?.id])
+
+  // Auto-dismiss del banner realtime tras 6s.
+  useEffect(() => {
+    if (!realtimeNotice) return
+    const t = window.setTimeout(() => setRealtimeNotice(null), 6000)
+    return () => window.clearTimeout(t)
+  }, [realtimeNotice])
+
+  // Listener focalizado en esta mesa: detecta cuando otro usuario cambia su estado.
+  useRealtimeMesaDetalle(tenantId, mesa, {
+    onMesaLiberadaRemoto: (nuevoEstado) => {
+      const label = ESTADO_LABEL[nuevoEstado] ?? nuevoEstado
+      setRealtimeNotice(`Otro usuario actualizó esta mesa al estado "${label}". Cerrá el detalle cuando quieras.`)
+    },
+  })
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -755,6 +777,21 @@ export function DetalleMesaModal({
             <p className={`text-xs font-medium ${feedback.type === 'error' ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
               {feedback.message}
             </p>
+          )}
+
+          {realtimeNotice && (
+            <div className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/40 dark:text-amber-200">
+              <RefreshCw className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+              <span>{realtimeNotice}</span>
+              <button
+                type="button"
+                onClick={() => setRealtimeNotice(null)}
+                className="ml-auto text-amber-900/70 hover:text-amber-900 dark:text-amber-200/70 dark:hover:text-amber-200"
+                aria-label="Cerrar aviso"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
           )}
         </div>
       </div>

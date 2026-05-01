@@ -917,6 +917,7 @@ export default function POSView() {
       />
       {detalleMesaOpen && (
         <DetalleMesaModal
+          tenantId={tenant?.id ?? null}
           mesa={mesaObj}
           reservasMesa={[]}
           resumenPedido={resumenMesa}
