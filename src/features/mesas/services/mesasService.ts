@@ -785,7 +785,10 @@ export const mesasService = {
     const mesaIds = mesas.map((m) => m.id)
 
     // Cortar por sesión real: último liberar_mesa por cada mesa.
-    // Evita arrastrar pedidos FACT históricos en reaperturas de mesa.
+    // Si la mesa nunca fue liberada NO se aplica cutoff: no hay sesión anterior que descartar.
+    // Antes había un fallback a mesa.updated_at, pero ese campo lo mueve cualquier UPDATE
+    // (editar nombre/capacidad, ocupar_mesa, setEstadoMesa, etc.) y terminaba ocultando pedidos
+    // legítimos cuando mesa.updated_at quedaba > pedido.created_at.
     const { data: eventosLiberar, error: eventosLiberarError } = await supabase
       .from('mesa_eventos')
       .select('mesa_id, created_at')
@@ -796,19 +799,13 @@ export const mesasService = {
 
     if (eventosLiberarError) throw eventosLiberarError
 
-    const lastLiberarByMesa: Record<string, string> = {}
+    const cutoffBySesion: Record<string, string> = {}
     for (const ev of eventosLiberar ?? []) {
       if (!ev?.mesa_id || !ev?.created_at) continue
-      if (!lastLiberarByMesa[ev.mesa_id]) {
-        lastLiberarByMesa[ev.mesa_id] = ev.created_at
+      if (!cutoffBySesion[ev.mesa_id]) {
+        cutoffBySesion[ev.mesa_id] = ev.created_at
       }
     }
-
-    // Fallback: si la mesa nunca fue liberada (datos legacy), usar updated_at como referencia.
-    const fallbackCutoffByMesa = Object.fromEntries(mesas.map((m) => [m.id, m.updated_at]))
-    const cutoffBySesion = Object.fromEntries(
-      mesas.map((m) => [m.id, lastLiberarByMesa[m.id] ?? fallbackCutoffByMesa[m.id]])
-    )
 
     const { data, error } = await supabase
       .from('pedidos')
@@ -851,8 +848,9 @@ export const mesasService = {
     for (const p of (data ?? [])) {
       const mesaId = p.mesa_id as string
       const cutoff = cutoffBySesion[mesaId]
-      // Excluir pedidos de sesiones anteriores.
-      if (cutoff && p.created_at <= cutoff) continue
+      // Excluir pedidos de sesiones anteriores. Estricto (<) para no descartar pedidos
+      // creados en el mismo instante que el liberar_mesa por colisiones de microsegundos.
+      if (cutoff && p.created_at < cutoff) continue
 
       if (!byMesa.has(mesaId)) {
         byMesa.set(mesaId, { mesa_id: mesaId, pedidos: [], total_items: 0, total_acumulado: 0 })

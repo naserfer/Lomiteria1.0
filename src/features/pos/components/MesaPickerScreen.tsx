@@ -448,6 +448,7 @@ export function MesaPickerScreen({ tenantId, onSinMesa }: MesaPickerScreenProps)
       </div>
 
       <DetalleMesaModal
+        tenantId={tenantId}
         mesa={selectedMesa}
         reservasMesa={[]}
         resumenPedido={selectedMesa ? (resumenByMesa[selectedMesa.id] ?? null) : null}

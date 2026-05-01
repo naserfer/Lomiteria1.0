@@ -9,10 +9,10 @@ import {
 } from 'lucide-react'
 import { useTenant } from '@/contexts/TenantContext'
 import { ROUTES } from '@/config/routes'
-import { createClient } from '@/lib/supabase/client'
 import { mesasService } from '../services/mesasService'
 import { cerrarCuentaMesaService } from '../services/cerrarCuentaMesaService'
 import { DetalleMesaModal } from '../components/DetalleMesaModal'
+import { useRealtimeMesas } from '../hooks/useRealtimeMesas'
 import type { EstadoMesa, Mesa, MesaReserva, ResumenMesa } from '../types/mesas.types'
 
 // ─── Estilos por estado ────────────────────────────────────────────────────────
@@ -133,101 +133,99 @@ export default function MesasView() {
       const data = await mesasService.getResumenPedidosMesas(tenant.id, ocupadas)
       const map: Record<string, ResumenMesa> = {}
       data.forEach(r => { map[r.mesa_id] = r })
+      // Diagnóstico defensivo: si una mesa está marcada como ocupada pero el resumen
+      // viene vacío, lo registramos. Sirve para detectar cutoffs de sesión mal calculados
+      // o pedidos sin mesa_id asociado sin necesidad de tocar la BD.
+      const sinResumen = ocupadas.filter(m => !map[m.id])
+      if (sinResumen.length > 0) {
+        console.warn(
+          '[MesasView] Mesas ocupadas sin pedidos en resumen:',
+          sinResumen.map(m => ({ id: m.id, numero: m.numero, updated_at: m.updated_at }))
+        )
+      }
       setResumenByMesa(map)
-    } catch {
-      // silencioso — la vista de la mesa sigue funcionando sin el resumen
+    } catch (e) {
+      console.error('[MesasView] getResumenPedidosMesas:', e)
     } finally {
       setLoadingResumen(false)
     }
+  }, [tenant?.id])
+
+  const fetchMesas = useCallback(async () => {
+    if (!tenant?.id) return null
+    try {
+      const data = await mesasService.listMesas(tenant.id)
+      setMesas(data)
+      return data
+    } catch (e: any) {
+      setGlobalError(e?.message ?? 'No se pudo cargar la lista de mesas.')
+      return null
+    }
+  }, [tenant?.id])
+
+  const fetchReservas = useCallback(async () => {
+    if (!tenant?.id) return
+    try {
+      const data = await mesasService.listReservas(tenant.id)
+      setReservas(data)
+    } catch (e) {
+      console.error('[MesasView] listReservas:', e)
+      setGlobalError('No se pudieron cargar las reservas. Revisá permisos / RLS o la tabla mesa_reservas.')
+    }
+  }, [tenant?.id])
+
+  const fetchUniones = useCallback(async () => {
+    if (!tenant?.id) return
+    const unions = await mesasService.listUnionesActivas(tenant.id).catch(() => [])
+    setUnionesActivas(unions.map(u => ({ id: u.id, codigo: u.codigo, mesas: u.mesas })))
   }, [tenant?.id])
 
   const loadData = useCallback(async () => {
     if (!tenant?.id) return
     setLoading(true)
     try {
-      const mesasData = await mesasService.listMesas(tenant.id)
-      let reservasData: MesaReserva[] = []
-      try {
-        reservasData = await mesasService.listReservas(tenant.id)
-      } catch (e) {
-        console.error('[MesasView] listReservas:', e)
-        setGlobalError('No se pudieron cargar las reservas. Revisá permisos / RLS o la tabla mesa_reservas.')
-      }
-      setMesas(mesasData)
-      setReservas(reservasData)
-      const unions = await mesasService.listUnionesActivas(tenant.id).catch(() => [])
-      setUnionesActivas(unions.map(u => ({ id: u.id, codigo: u.codigo, mesas: u.mesas })))
-      void loadResumenes(mesasData)
+      const mesasData = await fetchMesas()
+      await fetchReservas()
+      await fetchUniones()
+      if (mesasData) void loadResumenes(mesasData)
     } catch (e: any) {
       setGlobalError(e?.message ?? 'No se pudo cargar el panel de mesas.')
     } finally {
       setLoading(false)
     }
-  }, [tenant?.id, loadResumenes])
+  }, [tenant?.id, fetchMesas, fetchReservas, fetchUniones, loadResumenes])
 
   useEffect(() => { void loadData() }, [loadData])
 
-  // ── Realtime: re-fetch resúmenes cuando lleguen nuevos items/pedidos ──────────
+  // ── Realtime: stream tenant-level (mesas, pedidos, reservas, uniones, eventos) ─
 
   const mesasRef = useRef(mesas)
   useEffect(() => { mesasRef.current = mesas }, [mesas])
 
-  useEffect(() => {
-    if (!tenant?.id) return
-    const supabase  = createClient()
-    const debounceRef = { current: null as ReturnType<typeof setTimeout> | null }
-
-    const refresh = () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current)
-      debounceRef.current = setTimeout(() => void loadResumenes(mesasRef.current), 600)
-    }
-
-    const channel = supabase
-      .channel(`mesas-resumen-view-${tenant.id}`)
-      .on('postgres_changes', { event: '*',      schema: 'public', table: 'pedidos',      filter: `tenant_id=eq.${tenant.id}` }, refresh)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'items_pedido' }, refresh)
-      .subscribe()
-
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current)
-      void supabase.removeChannel(channel)
-    }
-  }, [tenant?.id, loadResumenes])
-
-  // Realtime: reservas nuevas/editadas/eliminadas
-  useEffect(() => {
-    if (!tenant?.id) return
-    const supabase = createClient()
-    const refreshReservas = () => {
-      void mesasService
-        .listReservas(tenant.id!)
-        .then(setReservas)
-        .catch((e) => console.error('[MesasView] listReservas (realtime refresh):', e))
-    }
-
-    const channel = supabase
-      .channel(`mesas-view-reservas-${tenant.id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'mesa_reservas',
-          filter: `tenant_id=eq.${tenant.id}`,
-        },
-        refreshReservas
-      )
-      .subscribe()
-
-    return () => {
-      void supabase.removeChannel(channel)
-    }
-  }, [tenant?.id])
+  useRealtimeMesas(tenant?.id, {
+    onMesasChange: () => {
+      // Re-fetch lista y resumen porque un cambio de estado puede invalidar el resumen.
+      void fetchMesas().then((mesasData) => {
+        if (mesasData) void loadResumenes(mesasData)
+      })
+    },
+    onResumenInvalidate: () => {
+      void loadResumenes(mesasRef.current)
+    },
+    onReservasChange: () => {
+      void fetchReservas()
+    },
+    onUnionesChange: () => {
+      void fetchUniones()
+    },
+  })
 
   // Refresco puntual al abrir el modal para evitar mostrar datos viejos en el detalle.
+  // Sólo se dispara al cambiar la mesa seleccionada; los cambios continuos los
+  // cubre useRealtimeMesas vía onResumenInvalidate.
   useEffect(() => {
     if (!tenant?.id || !selectedMesaId) return
-    const mesaActiva = mesas.find((m) => m.id === selectedMesaId)
+    const mesaActiva = mesasRef.current.find((m) => m.id === selectedMesaId)
     if (!mesaActiva || mesaActiva.estado !== 'ocupada') return
 
     let isCancelled = false
@@ -255,7 +253,7 @@ export default function MesasView() {
     return () => {
       isCancelled = true
     }
-  }, [tenant?.id, selectedMesaId, mesas])
+  }, [tenant?.id, selectedMesaId])
 
   // ── Helpers derivados ─────────────────────────────────────────────────────────
 
@@ -1012,6 +1010,7 @@ export default function MesasView() {
           )}
 
           <DetalleMesaModal
+            tenantId={tenant?.id ?? null}
             mesa={selectedMesa}
             reservasMesa={selectedMesa ? (reservasActivasPorMesa.get(selectedMesa.id) ?? []) : []}
             resumenPedido={selectedMesa ? (resumenByMesa[selectedMesa.id] ?? null) : null}
