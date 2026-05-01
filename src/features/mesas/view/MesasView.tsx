@@ -145,10 +145,14 @@ export default function MesasView() {
     if (!tenant?.id) return
     setLoading(true)
     try {
-      const [mesasData, reservasData] = await Promise.all([
-        mesasService.listMesas(tenant.id),
-        mesasService.listReservas(tenant.id).catch(() => [] as MesaReserva[]),
-      ])
+      const mesasData = await mesasService.listMesas(tenant.id)
+      let reservasData: MesaReserva[] = []
+      try {
+        reservasData = await mesasService.listReservas(tenant.id)
+      } catch (e) {
+        console.error('[MesasView] listReservas:', e)
+        setGlobalError('No se pudieron cargar las reservas. Revisá permisos / RLS o la tabla mesa_reservas.')
+      }
       setMesas(mesasData)
       setReservas(reservasData)
       const unions = await mesasService.listUnionesActivas(tenant.id).catch(() => [])
@@ -189,6 +193,36 @@ export default function MesasView() {
       void supabase.removeChannel(channel)
     }
   }, [tenant?.id, loadResumenes])
+
+  // Realtime: reservas nuevas/editadas/eliminadas
+  useEffect(() => {
+    if (!tenant?.id) return
+    const supabase = createClient()
+    const refreshReservas = () => {
+      void mesasService
+        .listReservas(tenant.id!)
+        .then(setReservas)
+        .catch((e) => console.error('[MesasView] listReservas (realtime refresh):', e))
+    }
+
+    const channel = supabase
+      .channel(`mesas-view-reservas-${tenant.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'mesa_reservas',
+          filter: `tenant_id=eq.${tenant.id}`,
+        },
+        refreshReservas
+      )
+      .subscribe()
+
+    return () => {
+      void supabase.removeChannel(channel)
+    }
+  }, [tenant?.id])
 
   // Refresco puntual al abrir el modal para evitar mostrar datos viejos en el detalle.
   useEffect(() => {
@@ -242,28 +276,41 @@ export default function MesasView() {
     return set
   }, [unionesActivas])
 
-  // Reservas activas de HOY por mesa
+  // Reservas pendientes / confirmadas desde HOY en adelante (misma TZ local que el navegador)
   const reservasActivasPorMesa = useMemo(() => {
     const now = new Date()
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
     const map = new Map<string, MesaReserva[]>()
     for (const r of reservas) {
       if (!['pendiente', 'confirmada'].includes(r.estado)) continue
       const start = new Date(r.inicio_at)
-      if (
-        start.getFullYear() === now.getFullYear() &&
-        start.getMonth()   === now.getMonth()    &&
-        start.getDate()    === now.getDate()
-      ) {
-        const list = map.get(r.mesa_id) ?? []
-        list.push(r)
-        map.set(r.mesa_id, list)
-      }
+      const dayStart = new Date(start.getFullYear(), start.getMonth(), start.getDate()).getTime()
+      if (dayStart < startOfToday) continue
+      const list = map.get(r.mesa_id) ?? []
+      list.push(r)
+      map.set(r.mesa_id, list)
     }
+    map.forEach((list, mesaId) => {
+      list.sort((a, b) => new Date(a.inicio_at).getTime() - new Date(b.inicio_at).getTime())
+      map.set(mesaId, list)
+    })
     return map
   }, [reservas])
 
   const reservasOrdenadas = useMemo(
-    () => [...reservas].sort((a, b) => new Date(a.inicio_at).getTime() - new Date(b.inicio_at).getTime()),
+    () =>
+      [...reservas].sort((a, b) => {
+        const ta = new Date(a.inicio_at).getTime()
+        const tb = new Date(b.inicio_at).getTime()
+        if (a.estado !== b.estado) {
+          const rank = (e: MesaReserva['estado']) =>
+            ({ pendiente: 0, confirmada: 1, completada: 2, no_show: 3, cancelada: 4 })[e]
+          const ra = rank(a.estado)
+          const rb = rank(b.estado)
+          if (ra !== rb) return ra - rb
+        }
+        return ta - tb
+      }),
     [reservas]
   )
 
@@ -872,11 +919,11 @@ export default function MesasView() {
                     ) : (
                       /* ── Vista normal simplificada: reservas + acciones rápidas ── */
                       <>
-                        {/* Reservas del día */}
+                        {/* Próximas reservas (desde hoy) */}
                         {reservasMesa.length > 0 && (
                           <div className="rounded-xl border border-blue-200 dark:border-blue-900/50 bg-blue-50 dark:bg-blue-950/20 px-3 py-2">
                             <p className="text-[10px] font-semibold uppercase tracking-wider text-blue-600 dark:text-blue-400 mb-1">
-                              Reservas hoy
+                              Próximas reservas
                             </p>
                             {reservasMesa.slice(0, 2).map(r => (
                               <p key={r.id} className="text-xs text-blue-700 dark:text-blue-300">
@@ -994,14 +1041,13 @@ export default function MesasView() {
             addingProductoManual={selectedMesa ? addingManualItemMesaId === selectedMesa.id : false}
           />
 
-          {/* ── Paneles inferiores ── */}
-          <section className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-
-            {/* Panel: Crear reserva */}
-            <article className="rounded-3xl border border-white/40 dark:border-gray-800 bg-white/85 dark:bg-gray-900/70 p-5 space-y-3">
+          {/* ── Reservas: formulario + listado lado a lado (desktop) ── */}
+          <section className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+            {/* Alta de reserva (izquierda en lg) */}
+            <article className="rounded-3xl border border-white/40 dark:border-gray-800 bg-white/85 dark:bg-gray-900/70 p-5 space-y-3 min-w-0">
               <div className="flex items-center gap-2">
                 <CalendarClock className="w-4 h-4 text-blue-500" />
-                <h3 className="font-bold">Reservas</h3>
+                <h3 className="font-bold">Nueva reserva</h3>
               </div>
 
               <select value={reservaMesaId} onChange={e => setReservaMesaId(e.target.value)} className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2.5 text-sm">
@@ -1033,6 +1079,91 @@ export default function MesasView() {
                 {savingId === 'reserva' ? 'Guardando…' : 'Crear reserva'}
               </button>
             </article>
+
+            {/* Panel de listado (derecha en lg): visible junto al formulario */}
+            <div className="rounded-3xl border border-white/40 dark:border-gray-800 bg-white/85 dark:bg-gray-900/70 p-5 min-w-0 flex flex-col max-h-[min(70vh,640px)] lg:max-h-[min(80vh,720px)]">
+              <div className="flex items-start justify-between gap-2 shrink-0 mb-3">
+                <h3 className="font-bold text-lg leading-tight">Panel de reservas</h3>
+                {!loading && (
+                  <span className="text-xs font-semibold rounded-full bg-blue-100 dark:bg-blue-950/50 text-blue-800 dark:text-blue-300 px-2.5 py-0.5 tabular-nums">
+                    {reservas.length}
+                  </span>
+                )}
+              </div>
+
+              <div className="flex-1 min-h-0 overflow-y-auto pr-1 space-y-2 -mr-1">
+                {reservasOrdenadas.length === 0 ? (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">No hay reservas registradas.</p>
+                ) : (
+                  reservasOrdenadas.map(reserva => {
+                      const inicio = new Date(reserva.inicio_at)
+                      const now = new Date()
+                      const isPast = inicio.getTime() <= now.getTime()
+                      const isCancelled = reserva.estado === 'cancelada'
+                      const mesa = mesas.find(m => m.id === reserva.mesa_id)
+                      const isCancelling = cancelandoReservaId === reserva.id
+                      const isDeleting = deletingReservaId === reserva.id
+
+                      return (
+                        <div
+                          key={reserva.id}
+                          className={`rounded-xl border px-4 py-3 flex flex-wrap items-center justify-between gap-3 transition ${
+                            isCancelled
+                              ? 'border-gray-200 dark:border-gray-700 opacity-50'
+                              : 'border-gray-200 dark:border-gray-700'
+                          }`}
+                        >
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold">
+                              {reserva.nombre_reserva}
+                              <span className="font-normal text-gray-500"> · Mesa #{mesa?.numero ?? '?'}</span>
+                            </p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                              {inicio.toLocaleString('es-PY', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                              {reserva.telefono && ` · ${reserva.telefono}`}
+                              {reserva.cantidad_personas != null && reserva.cantidad_personas > 0 && ` · ${reserva.cantidad_personas} personas`}
+                              {' · '}
+                              <span className={isCancelled ? 'text-rose-500' : isPast ? 'text-gray-400' : 'text-blue-500'}>
+                                {isCancelled ? 'Cancelada' : isPast ? 'Pasada / en curso' : reserva.estado}
+                              </span>
+                            </p>
+                            {reserva.notas && (
+                              <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5 italic">&quot;{reserva.notas}&quot;</p>
+                            )}
+                          </div>
+
+                          {!isCancelled && (
+                            <div className="flex items-center gap-2">
+                              {!isPast && (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleCancelarReserva(reserva)}
+                                  disabled={isCancelling}
+                                  className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 px-3 py-1.5 text-xs font-semibold disabled:opacity-50 transition hover:bg-amber-100 dark:hover:bg-amber-900/30"
+                                >
+                                  {isCancelling ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <X className="w-3.5 h-3.5" />}
+                                  {isCancelling ? 'Cancelando…' : 'Cancelar'}
+                                </button>
+                              )}
+                              {isPast && (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleDeleteReserva(reserva)}
+                                  disabled={isDeleting}
+                                  className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400 px-3 py-1.5 text-xs font-semibold disabled:opacity-50 transition hover:bg-red-100 dark:hover:bg-red-900/30"
+                                >
+                                  {isDeleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                                  {isDeleting ? 'Eliminando…' : 'Eliminar'}
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })
+                )}
+              </div>
+            </div>
 
             {/* Panel: Unión de mesas — comentado temporalmente
             <article className="rounded-3xl border border-white/40 dark:border-gray-800 bg-white/85 dark:bg-gray-900/70 p-5 space-y-3">
@@ -1109,86 +1240,6 @@ export default function MesasView() {
               </div>
             </article>
             */}
-          </section>
-
-          {/* ── Panel de reservas ── */}
-          <section className="rounded-3xl border border-white/40 dark:border-gray-800 bg-white/85 dark:bg-gray-900/70 p-5">
-            <h3 className="font-bold text-lg mb-4">Panel de reservas</h3>
-
-            {reservasOrdenadas.length === 0 ? (
-              <p className="text-sm text-gray-500 dark:text-gray-400">No hay reservas registradas.</p>
-            ) : (
-              <div className="space-y-2">
-                {reservasOrdenadas.map(reserva => {
-                  const inicio   = new Date(reserva.inicio_at)
-                  const now      = new Date()
-                  const isPast   = inicio.getTime() <= now.getTime()
-                  const isCancelled = reserva.estado === 'cancelada'
-                  const mesa     = mesas.find(m => m.id === reserva.mesa_id)
-                  const isCancelling = cancelandoReservaId === reserva.id
-                  const isDeleting   = deletingReservaId   === reserva.id
-
-                  return (
-                    <div
-                      key={reserva.id}
-                      className={`rounded-xl border px-4 py-3 flex flex-wrap items-center justify-between gap-3 transition ${
-                        isCancelled
-                          ? 'border-gray-200 dark:border-gray-700 opacity-50'
-                          : 'border-gray-200 dark:border-gray-700'
-                      }`}
-                    >
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold">
-                          {reserva.nombre_reserva}
-                          <span className="font-normal text-gray-500"> · Mesa #{mesa?.numero ?? '?'}</span>
-                        </p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                          {inicio.toLocaleString('es-PY', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                          {reserva.telefono && ` · ${reserva.telefono}`}
-                          {reserva.cantidad_personas && ` · ${reserva.cantidad_personas} personas`}
-                          {' · '}
-                          <span className={isCancelled ? 'text-rose-500' : isPast ? 'text-gray-400' : 'text-blue-500'}>
-                            {isCancelled ? 'Cancelada' : reserva.estado}
-                          </span>
-                        </p>
-                        {reserva.notas && (
-                          <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5 italic">&quot;{reserva.notas}&quot;</p>
-                        )}
-                      </div>
-
-                      {!isCancelled && (
-                        <div className="flex items-center gap-2">
-                          {/* Cancelar: disponible para reservas FUTURAS */}
-                          {!isPast && (
-                            <button
-                              type="button"
-                              onClick={() => void handleCancelarReserva(reserva)}
-                              disabled={isCancelling}
-                              className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 px-3 py-1.5 text-xs font-semibold disabled:opacity-50 transition hover:bg-amber-100 dark:hover:bg-amber-900/30"
-                            >
-                              {isCancelling ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <X className="w-3.5 h-3.5" />}
-                              {isCancelling ? 'Cancelando…' : 'Cancelar'}
-                            </button>
-                          )}
-                          {/* Eliminar: solo para reservas PASADAS */}
-                          {isPast && (
-                            <button
-                              type="button"
-                              onClick={() => void handleDeleteReserva(reserva)}
-                              disabled={isDeleting}
-                              className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400 px-3 py-1.5 text-xs font-semibold disabled:opacity-50 transition hover:bg-red-100 dark:hover:bg-red-900/30"
-                            >
-                              {isDeleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-                              {isDeleting ? 'Eliminando…' : 'Eliminar'}
-                            </button>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            )}
           </section>
 
         </div>

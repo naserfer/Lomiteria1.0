@@ -204,7 +204,7 @@ export default function POSView() {
     setTimeout(() => searchCircleRef.current?.focus(), 0)
   }
 
-  /** Al cambiar de categoría, salir del modo búsqueda para mostrar el top de esa categoría */
+  /** Al cambiar de categoría, salir del modo búsqueda y listar todos los productos del rubro */
   const handleSelectCategory = (id: string | null) => {
     setSelectedCategory(id)
     setSearchTerm('')
@@ -217,10 +217,6 @@ export default function POSView() {
   const filteredProducts = selectedCategory
     ? productos.filter((p) => p.categoria_id === selectedCategory)
     : productos
-
-  /** En el grid principal mostramos hasta 10 productos (los más vendidos, el orden ya viene del backend) */
-  const TOP_PRODUCTOS_GRID = 10
-  const filteredProductsTop = filteredProducts.slice(0, TOP_PRODUCTOS_GRID)
 
   const searchActive = searchTerm.trim().length >= 1
   const searchResults = useMemo(() => {
@@ -250,7 +246,7 @@ export default function POSView() {
     return scored.map(({ p }) => p)
   }, [productos, categorias, searchTerm, searchActive])
 
-  const productsToShow = searchActive ? searchResults : filteredProductsTop
+  const productsToShow = searchActive ? searchResults : filteredProducts
 
   // Al menos 2 categorías siguientes para listar abajo del grid principal (ocultas si hay búsqueda activa)
   const selectedIndex = selectedCategory
