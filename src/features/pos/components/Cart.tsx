@@ -104,6 +104,7 @@ export default function Cart({
   const saucesInitialQty = useMemo(() => {
     const map: Record<string, number> = {}
     sauceItems.forEach((i) => {
+      if (i.producto_id == null) return
       map[i.producto_id] = i.cantidad
     })
     return map

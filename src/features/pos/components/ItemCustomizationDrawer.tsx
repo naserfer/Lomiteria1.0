@@ -413,7 +413,7 @@ export function ItemCustomizationDrawer({ open, itemId, onClose, darkMode }: Ite
   )
 
   // ── Hook de ingredientes: para producto individual o sub-producto de combo ──
-  const activeProductId = isCombo ? editingComboProductId ?? undefined : item?.producto_id
+  const activeProductId = (isCombo ? editingComboProductId : item?.producto_id) ?? undefined
   const activeCustomization = isCombo
     ? editingComboProduct?.customization
     : item?.customization

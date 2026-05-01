@@ -618,7 +618,9 @@ export default function POSView() {
                         {mesaId && (
                           <button
                             type="button"
-                            onClick={handleCerrarCuentaMesa}
+                            onClick={() => {
+                              void handleCerrarCuentaMesa()
+                            }}
                             title="Cerrar cuenta de esta mesa"
                             disabled={isClosingMesaAccount}
                             className={`inline-flex items-center justify-center rounded-lg border p-2 sm:rounded-xl sm:gap-2 sm:px-3 sm:py-2 sm:text-sm sm:font-medium transition min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 ${

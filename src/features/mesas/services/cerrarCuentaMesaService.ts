@@ -233,7 +233,9 @@ export const cerrarCuentaMesaService = {
         .eq('pedido_id', pedidoPrincipal.id)
         .eq('anulada', false)
         .maybeSingle()
-      facturaExistente = fallback.data as { id: string; metodo_cobro?: string | null } | null
+      facturaExistente = fallback.data
+        ? { id: fallback.data.id, metodo_cobro: null }
+        : null
       facturaExistenteError = fallback.error
     }
 
@@ -244,7 +246,13 @@ export const cerrarCuentaMesaService = {
     facturaYaExistia = Boolean(facturaExistente?.id)
 
     // Si la factura ya existe pero no tenía método, completar al cerrar cuenta.
-    if (metodoCobroDisponible && facturaYaExistia && params.metodoCobro && !facturaExistente?.metodo_cobro) {
+    if (
+      metodoCobroDisponible &&
+      facturaYaExistia &&
+      params.metodoCobro &&
+      facturaExistente &&
+      !facturaExistente.metodo_cobro
+    ) {
       const { error: updateMetodoError } = await supabase
         .from('facturas')
         .update({ metodo_cobro: params.metodoCobro, updated_at: new Date().toISOString() })

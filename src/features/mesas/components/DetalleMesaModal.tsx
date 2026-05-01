@@ -415,8 +415,7 @@ export function DetalleMesaModal({
                           const allExtrasForPrice = (item.customizaciones ?? []).filter((c) => c.tipo === 'extra')
                           const noteExtrasForPrice = allExtrasForPrice.filter((c) => {
                             const extraText = (c.ingrediente_nombre ?? '').trim()
-                            const motivoText = (c.motivo ?? '').trim()
-                            return /^nota\s*:/i.test(extraText) || /^nota\s*:/i.test(motivoText)
+                            return /^nota\s*:/i.test(extraText)
                           })
                           const noteRecargoForPrice = noteExtrasForPrice.reduce(
                             (sum, e) => sum + Math.max(0, Number(e.precio_extra ?? 0)),
@@ -445,8 +444,7 @@ export function DetalleMesaModal({
                                 const allExtras = (item.customizaciones ?? []).filter((c) => c.tipo === 'extra')
                                 const noteExtras = allExtras.filter((c) => {
                                   const extraText = (c.ingrediente_nombre ?? '').trim()
-                                  const motivoText = (c.motivo ?? '').trim()
-                                  return /^nota\s*:/i.test(extraText) || /^nota\s*:/i.test(motivoText)
+                                  return /^nota\s*:/i.test(extraText)
                                 })
                                 const extras = allExtras.filter((c) => !noteExtras.includes(c))
                                 const notaTexto = item.notas?.trim() ?? ''
