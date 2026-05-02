@@ -18,6 +18,7 @@ import {
 import { formatGuaranies } from '@/lib/utils/format'
 import { printService } from './printService'
 import { registrarCanjePuntos, registrarPuntosGanados } from '@/lib/db/puntos'
+import { broadcastMesasChanged } from '@/features/mesas/services/mesasRealtimeBroadcast'
 
 /** Convierte error de Supabase en Error con mensaje legible para el usuario y la consola */
 function toError(err: PostgrestError | Error, context: string): Error {
@@ -340,6 +341,7 @@ export const orderService = {
         tipo: 'ocupar_mesa',
         payload: { source: 'confirmOrder' }
       })
+      void broadcastMesasChanged(tenantId, 'confirmOrder:ocupar')
     }
     
     const pedidoFacturado = { ...pedido, estado_pedido: 'FACT' as const }

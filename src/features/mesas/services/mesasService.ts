@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/client'
+import { broadcastMesasChanged, broadcastReservasChanged } from './mesasRealtimeBroadcast'
 import type { EstadoMesa, Mesa, MesaReserva, MesaUnion, MesaUnionItem, PedidoDivision, ResumenMesa } from '../types/mesas.types'
 
 const MESAS_SELECT = 'id, tenant_id, numero, nombre, capacidad, estado, activa, orden, created_at, updated_at'
@@ -417,6 +418,7 @@ export const mesasService = {
               : 'ocupar_mesa',
       payload: { estado },
     })
+    void broadcastMesasChanged(tenantId, `setEstadoMesa:${estado}`)
     return data as Mesa
   },
 
@@ -477,6 +479,7 @@ export const mesasService = {
       tipo: 'reservar_mesa',
       payload: { nombre: input.nombre, inicioAt: input.inicioAt },
     })
+    void broadcastReservasChanged(input.tenantId, 'createReserva')
     return data as MesaReserva
   },
 
@@ -502,6 +505,7 @@ export const mesasService = {
       tipo: estado === 'cancelada' ? 'cancelar_reserva' : 'confirmar_reserva',
       payload: { reservaId, estado },
     })
+    void broadcastReservasChanged(tenantId, `updateReservaEstado:${estado}`)
     return data as MesaReserva
   },
 
@@ -513,6 +517,7 @@ export const mesasService = {
       .eq('tenant_id', tenantId)
       .eq('id', reservaId)
     if (error) throw error
+    void broadcastReservasChanged(tenantId, 'deleteReserva')
   },
 
   async moverPedidoAMesa(params: {

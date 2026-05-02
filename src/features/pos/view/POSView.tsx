@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect, useRef, useMemo } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { LayoutDashboard, FileText, Loader2, ShoppingCart, Search, Gift, Printer, QrCode, X, ExternalLink, Copy, Check, Table2, CheckCircle2, ClipboardList } from 'lucide-react'
 import { useCartStore } from '@/store/cartStore'
@@ -33,9 +33,20 @@ import { cerrarCuentaMesaService } from '@/features/mesas/services/cerrarCuentaM
 import { mesasService } from '@/features/mesas/services/mesasService'
 import { DetalleMesaModal } from '@/features/mesas/components/DetalleMesaModal'
 import type { Mesa, ResumenMesa } from '@/features/mesas/types/mesas.types'
-import { TENANT_ID_ORIENTAL } from '@/utils/constants'
+import { tenantHasOrientalCustomPOSFeatures } from '@/utils/constants'
+import { mesaPedidoCocinaToastClassName } from '../components/mesaPedidoCocinaToastStyles'
+import {
+  MESA_PEDIDO_COCINA_TOAST_MESSAGE,
+  setMesaPedidoCocinaToastSession,
+} from '../utils/mesaPedidoCocinaToastSession'
+
+/** Redirección al picker / panel mesas después de confirmar pedido de mesa */
+const MESA_PEDIDO_NAVIGATE_MS = 1500
+/** Duración total del mensaje «Pedido enviado…» (sigue visible unos segundos tras el salto). */
+const MESA_PEDIDO_TOAST_MS = 2500
 
 export default function POSView() {
+  const router = useRouter()
   const searchParams = useSearchParams()
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
@@ -59,6 +70,7 @@ export default function POSView() {
   const [addingManualItemInDetalle, setAddingManualItemInDetalle] = useState(false)
   const [detalleMesaFeedback, setDetalleMesaFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const [mesaToast, setMesaToast] = useState<string | null>(null)
+  const mesaPedidoNavigateTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const { usuario, tenant, loading: tenantLoading, darkMode, isAdmin, isCajero, hasMesas } = useTenant()
   const { items, addItem, addComboItem, tipo, setTipo, clearCart } = useCartStore()
@@ -76,9 +88,22 @@ export default function POSView() {
     return ROUTES.PROTECTED.POS
   }, [mesaId, fromParam, tenant?.gestion_mesas])
 
+  /** Tras confirmar pedido de mesa (toast), volver al picker o a Mesas según `from`. */
+  const scheduleNavigateAfterMesaPedidoSuccess = useCallback(() => {
+    if (!hasMesas || !mesaId) return
+    if (mesaPedidoNavigateTimeoutRef.current) {
+      clearTimeout(mesaPedidoNavigateTimeoutRef.current)
+    }
+    mesaPedidoNavigateTimeoutRef.current = setTimeout(() => {
+      mesaPedidoNavigateTimeoutRef.current = null
+      router.replace(backRoute)
+    }, MESA_PEDIDO_NAVIGATE_MS)
+  }, [hasMesas, mesaId, router, backRoute])
+
   // Cajero en el tenant Oriental ve "Ver detalles de mesa" en lugar de "Cerrar cuenta"
   // Admin y cajero de Oriental: UI simplificada en contexto de mesa (solo "Ver detalles")
-  const showVerDetallesMesa = (isAdmin || isCajero) && tenant?.id === TENANT_ID_ORIENTAL
+  const showVerDetallesMesa =
+    (isAdmin || isCajero) && tenantHasOrientalCustomPOSFeatures(tenant?.id)
   const {
     prepareConfirmOrder,
     confirmOrderWithFacturaChoice,
@@ -171,9 +196,17 @@ export default function POSView() {
 
   useEffect(() => {
     if (!mesaToast) return
-    const timeout = setTimeout(() => setMesaToast(null), 2500)
+    const timeout = setTimeout(() => setMesaToast(null), MESA_PEDIDO_TOAST_MS)
     return () => clearTimeout(timeout)
   }, [mesaToast])
+
+  useEffect(() => {
+    return () => {
+      if (mesaPedidoNavigateTimeoutRef.current) {
+        clearTimeout(mesaPedidoNavigateTimeoutRef.current)
+      }
+    }
+  }, [])
 
   // Focus search input when overlay opens
   useEffect(() => {
@@ -275,7 +308,9 @@ export default function POSView() {
       const direct = await confirmOrderNoFactura()
       if (direct) {
         if (direct.type === 'success') {
-          setMesaToast('Pedido enviado a cocina')
+          setMesaPedidoCocinaToastSession(MESA_PEDIDO_COCINA_TOAST_MESSAGE, MESA_PEDIDO_TOAST_MS)
+          setMesaToast(MESA_PEDIDO_COCINA_TOAST_MESSAGE)
+          scheduleNavigateAfterMesaPedidoSuccess()
         } else {
           setFeedback(direct)
         }
@@ -292,7 +327,9 @@ export default function POSView() {
     const result = await confirmOrderWithFacturaChoice(facturaALNombreDelCliente, comprobanteNombreYCI)
     if (result) {
       if (mesaId && result.type === 'success') {
-        setMesaToast('Pedido enviado a cocina')
+        setMesaPedidoCocinaToastSession(MESA_PEDIDO_COCINA_TOAST_MESSAGE, MESA_PEDIDO_TOAST_MS)
+        setMesaToast(MESA_PEDIDO_COCINA_TOAST_MESSAGE)
+        scheduleNavigateAfterMesaPedidoSuccess()
       } else {
         setFeedback(result)
       }
@@ -847,7 +884,7 @@ export default function POSView() {
               darkMode={darkMode}
               onEditItem={(itemId) => setEditingItemId(itemId)}
               isMesaOrder={!!mesaId}
-              allowManualItem={tenant?.id === TENANT_ID_ORIENTAL}
+              allowManualItem={tenantHasOrientalCustomPOSFeatures(tenant?.id)}
             />
           </div>
         </div>
@@ -869,7 +906,7 @@ export default function POSView() {
       )}
 
       {mesaId && mesaToast && (
-        <div className="fixed right-4 top-20 z-[65] rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800 shadow-lg">
+        <div className={mesaPedidoCocinaToastClassName(darkMode)}>
           {mesaToast}
         </div>
       )}

@@ -6,6 +6,7 @@ import {
   RECEPTOR_FACTURA_GENERICO_RUC,
   clienteTieneRucParaFactura,
 } from '@/features/pos/utils/pos.utils'
+import { broadcastMesasChanged } from './mesasRealtimeBroadcast'
 
 interface CerrarCuentaMesaParams {
   tenantId: string
@@ -369,6 +370,8 @@ export const cerrarCuentaMesaService = {
     })
 
     if (liberarError) throw new Error(`Se emitió/encoló impresión, pero no se pudo liberar la mesa: ${liberarError.message}`)
+
+    void broadcastMesasChanged(params.tenantId, 'cerrarCuenta:liberar')
 
     return {
       pedidoId: pedidoPrincipal.id,
