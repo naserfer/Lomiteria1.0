@@ -10,7 +10,12 @@ import { createClient } from '@/lib/supabase/client'
 import { useEstadoCaja } from '@/features/caja/hooks/useEstadoCaja'
 import { CajaCerradaModal } from '@/features/caja/components/CajaCerradaModal'
 import { FEATURES } from '@/config'
-import { ROUTES, getPublicCartaQrPath, getAbsoluteCartaQrUrl } from '@/config/routes'
+import {
+  ROUTES,
+  getPublicCartaQrPath,
+  getAbsoluteCartaQrUrl,
+  posHrefWithMesaPhase,
+} from '@/config/routes'
 import { normalizarParaBusqueda } from '@/features/clientes/utils/clientes.utils'
 import { usePOSData } from '../hooks/usePOSData'
 import { useOrderConfirmation } from '../hooks/useOrderConfirmation'
@@ -37,6 +42,7 @@ import { tenantHasOrientalCustomPOSFeatures } from '@/utils/constants'
 import { mesaPedidoCocinaToastClassName } from '../components/mesaPedidoCocinaToastStyles'
 import {
   MESA_PEDIDO_COCINA_TOAST_MESSAGE,
+  POS_VENTA_VOLVER_PICKER_TOAST_MESSAGE,
   setMesaPedidoCocinaToastSession,
 } from '../utils/mesaPedidoCocinaToastSession'
 
@@ -78,27 +84,43 @@ export default function POSView() {
   const { categorias, productos, loading, feedback: dataFeedback } = usePOSData()
   const mesaId    = searchParams.get('mesaId')
   const fromParam = searchParams.get('from')
+  const mesaPhaseParam = searchParams.get('mesaPhase')
+
+  /** Venta sin mesa (flujo picker) → tras cobrar conviene volver al selector con toast */
+  const shouldReturnToPickerAfterSinMesaVenta =
+    hasMesas &&
+    (isAdmin || isCajero) &&
+    !mesaId &&
+    mesaPhaseParam === ROUTES.POS_MESA_PHASE.SIN_MESA
 
   // Destino de regreso al salir del POS con mesa:
   // - desde MesasView (admin)  → vuelve a /home/mesas
-  // - desde MesaPickerScreen   → vuelve a /home/pos (el picker se renderiza sin mesaId)
+  // - desde MesaPickerScreen   → vuelve al POS con selección de mesa (`mesaPhase=picker`)
   const backRoute = useMemo(() => {
     if (!mesaId || !tenant?.gestion_mesas) return ROUTES.PROTECTED.MESAS
     if (fromParam === ROUTES.POS_FROM.MESAS_VIEW) return ROUTES.PROTECTED.MESAS
-    return ROUTES.PROTECTED.POS
+    return posHrefWithMesaPhase(ROUTES.POS_MESA_PHASE.PICKER)
   }, [mesaId, fromParam, tenant?.gestion_mesas])
+
+  /** `replace` retardado para no cortar el toast (mesa o vuelta al picker tras «sin mesa»). */
+  const scheduleDelayedReplace = useCallback(
+    (href: string) => {
+      if (mesaPedidoNavigateTimeoutRef.current) {
+        clearTimeout(mesaPedidoNavigateTimeoutRef.current)
+      }
+      mesaPedidoNavigateTimeoutRef.current = setTimeout(() => {
+        mesaPedidoNavigateTimeoutRef.current = null
+        router.replace(href)
+      }, MESA_PEDIDO_NAVIGATE_MS)
+    },
+    [router],
+  )
 
   /** Tras confirmar pedido de mesa (toast), volver al picker o a Mesas según `from`. */
   const scheduleNavigateAfterMesaPedidoSuccess = useCallback(() => {
     if (!hasMesas || !mesaId) return
-    if (mesaPedidoNavigateTimeoutRef.current) {
-      clearTimeout(mesaPedidoNavigateTimeoutRef.current)
-    }
-    mesaPedidoNavigateTimeoutRef.current = setTimeout(() => {
-      mesaPedidoNavigateTimeoutRef.current = null
-      router.replace(backRoute)
-    }, MESA_PEDIDO_NAVIGATE_MS)
-  }, [hasMesas, mesaId, router, backRoute])
+    scheduleDelayedReplace(backRoute)
+  }, [hasMesas, mesaId, backRoute, scheduleDelayedReplace])
 
   // Cajero en el tenant Oriental ve "Ver detalles de mesa" en lugar de "Cerrar cuenta"
   // Admin y cajero de Oriental: UI simplificada en contexto de mesa (solo "Ver detalles")
@@ -318,7 +340,20 @@ export default function POSView() {
     } else if (!FEATURES.POS_FACTURA_MODAL) {
       // Sin mesa y modal desactivado: emitir factura directo para que el agente Realtime imprima
       const direct = await confirmOrderWithFacturaChoice(false, false)
-      if (direct) setFeedback(direct)
+      if (direct) {
+        if (direct.type === 'success' && shouldReturnToPickerAfterSinMesaVenta) {
+          setMesaPedidoCocinaToastSession(
+            POS_VENTA_VOLVER_PICKER_TOAST_MESSAGE,
+            MESA_PEDIDO_TOAST_MS,
+          )
+          setMesaToast(POS_VENTA_VOLVER_PICKER_TOAST_MESSAGE)
+          scheduleDelayedReplace(
+            posHrefWithMesaPhase(ROUTES.POS_MESA_PHASE.PICKER),
+          )
+        } else {
+          setFeedback(direct)
+        }
+      }
     }
     // Else: FEATURES.POS_FACTURA_MODAL=true → el modal se abrió en prepareConfirmOrder
   }
@@ -330,6 +365,13 @@ export default function POSView() {
         setMesaPedidoCocinaToastSession(MESA_PEDIDO_COCINA_TOAST_MESSAGE, MESA_PEDIDO_TOAST_MS)
         setMesaToast(MESA_PEDIDO_COCINA_TOAST_MESSAGE)
         scheduleNavigateAfterMesaPedidoSuccess()
+      } else if (result.type === 'success' && shouldReturnToPickerAfterSinMesaVenta) {
+        setMesaPedidoCocinaToastSession(
+          POS_VENTA_VOLVER_PICKER_TOAST_MESSAGE,
+          MESA_PEDIDO_TOAST_MS,
+        )
+        setMesaToast(POS_VENTA_VOLVER_PICKER_TOAST_MESSAGE)
+        scheduleDelayedReplace(posHrefWithMesaPhase(ROUTES.POS_MESA_PHASE.PICKER))
       } else {
         setFeedback(result)
       }
@@ -905,7 +947,7 @@ export default function POSView() {
         />
       )}
 
-      {mesaId && mesaToast && (
+      {mesaToast && (
         <div className={mesaPedidoCocinaToastClassName(darkMode)}>
           {mesaToast}
         </div>

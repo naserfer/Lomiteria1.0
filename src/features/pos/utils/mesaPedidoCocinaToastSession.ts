@@ -2,6 +2,9 @@ const STORAGE_KEY = 'lomiteria:mesaPedidoCocinaToast'
 
 export const MESA_PEDIDO_COCINA_TOAST_MESSAGE = 'Pedido enviado a cocina'
 
+/** Tras venta en flujo «Sin mesa» (vuelve al picker de salón). */
+export const POS_VENTA_VOLVER_PICKER_TOAST_MESSAGE = 'Venta registrada'
+
 export type MesaPedidoCocinaToastPayload = {
   message: string
   /** Marca de tiempo (ms) a la cual el mensaje deja de mostrarse */

@@ -12,6 +12,7 @@ import {
   LayoutDashboard,
   ChefHat,
   Store,
+  ShoppingBag,
   PlusCircle,
   Package,
   UserCog,
@@ -23,7 +24,7 @@ import {
   BarChart3,
 } from 'lucide-react'
 import { useTenant } from '@/contexts/TenantContext'
-import { ROUTES } from '@/config/routes'
+import { ROUTES, posHrefWithMesaPhase } from '@/config/routes'
 
 interface BreadcrumbItem {
   label: string
@@ -37,7 +38,7 @@ export function Breadcrumb() {
   const pathname = usePathname()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { darkMode, isAdmin, tenant } = useTenant()
+  const { darkMode, isAdmin, tenant, hasMesas, usuario } = useTenant()
   /** `path` o `href` exacto del botón pulsado (mientras Next navega) */
   const [navigatingTo, setNavigatingTo] = useState<string | null>(null)
 
@@ -191,16 +192,43 @@ export function Breadcrumb() {
         })
       }
     } else if (pathname.startsWith('/home/pos')) {
+      const mesaPhaseParam = searchParams.get('mesaPhase')
+      const isPosPickerRole =
+        usuario?.rol === 'admin' || usuario?.rol === 'cajero'
+
+      const posParentHref =
+        hasMesas && isPosPickerRole
+          ? posHrefWithMesaPhase(ROUTES.POS_MESA_PHASE.PICKER)
+          : ROUTES.PROTECTED.POS
+
       items.push({
         label: 'Punto de Venta',
-        // Con mesa activa, "Punto de Venta" vuelve al picker (sin mesaId)
-        path: ROUTES.PROTECTED.POS,
+        path: posParentHref,
         icon: <ShoppingCart className="w-4 h-4" />,
       })
+
+      // En el mesa picker (`mesaPhase=picker`): solo "Punto de Venta" como paso actual.
+      // Tras elegir mesa: "Punto de Venta" (enlace al picker) + "Mesa #N".
+      const showSinMesaCrumb =
+        hasMesas &&
+        isPosPickerRole &&
+        !mesaId &&
+        mesaPhaseParam === ROUTES.POS_MESA_PHASE.SIN_MESA
+
+      if (showSinMesaCrumb) {
+        items.push({
+          label: 'Sin mesa',
+          path: posHrefWithMesaPhase(ROUTES.POS_MESA_PHASE.SIN_MESA),
+          icon: <ShoppingBag className="w-4 h-4" />,
+        })
+      }
+
       if (mesaId) {
+        const fromQ = searchParams.get('from')
+        const mesaHref = `${ROUTES.PROTECTED.POS}?mesaId=${encodeURIComponent(mesaId)}${fromQ ? `&from=${encodeURIComponent(fromQ)}` : ''}`
         items.push({
           label: mesaNumero !== null ? `Mesa #${mesaNumero}` : 'Mesa',
-          path: `${ROUTES.PROTECTED.POS}?mesaId=${mesaId}`,
+          path: mesaHref,
           icon: <Table2 className="w-4 h-4" />,
         })
       }

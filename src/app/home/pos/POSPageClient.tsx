@@ -1,12 +1,13 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { useTenant } from '@/contexts/TenantContext'
 import { MesaPickerScreen } from '@/features/pos/components/MesaPickerScreen'
 import { getUnauthorizedRedirect } from '@/config/routing'
 import type { UserRole } from '@/config/routing'
+import { ROUTES, posHrefWithMesaPhase } from '@/config/routes'
 
 const POSView = dynamic(() => import('@/features/pos/view/POSView'), {
   loading: () => (
@@ -30,12 +31,28 @@ export default function POSPageClient() {
   const searchParams = useSearchParams()
   const { tenant, usuario, loading: tenantLoading, hasMesas } = useTenant()
 
-  // true cuando el usuario eligió explícitamente "sin mesa" en el picker.
-  // Se resetea al remontar (nueva visita al POS = nueva elección de mesa).
-  const [bypassPicker, setBypassPicker] = useState(false)
-
   const mesaId = searchParams.get('mesaId')
+  const mesaPhaseParam = searchParams.get('mesaPhase')
   const rol = usuario?.rol as UserRole | undefined
+
+  const isPickerRole = Boolean(rol && MESA_PICKER_ROLES.includes(rol))
+
+  /** Local con mesas + admin/cajero + todavía sin mesa elegida → hace falta `mesaPhase` en la URL */
+  const pickerGateActive =
+    hasMesas && isPickerRole && !mesaId
+
+  // Si debe mostrarse el gate y la URL no trae una fase válida, sincronizar a selección de mesa (breadcrumb + historial limpio).
+  useEffect(() => {
+    if (tenantLoading || !tenant) return
+    if (!pickerGateActive) return
+
+    const validPhase =
+      mesaPhaseParam === ROUTES.POS_MESA_PHASE.PICKER ||
+      mesaPhaseParam === ROUTES.POS_MESA_PHASE.SIN_MESA
+    if (validPhase) return
+
+    router.replace(posHrefWithMesaPhase(ROUTES.POS_MESA_PHASE.PICKER))
+  }, [tenantLoading, tenant, pickerGateActive, mesaPhaseParam, router])
 
   useEffect(() => {
     if (tenantLoading) return
@@ -59,23 +76,36 @@ export default function POSPageClient() {
 
   if (!rol || !ALLOWED_POS_ROLES.includes(rol)) return null
 
+  if (pickerGateActive) {
+    const syncedPhase =
+      mesaPhaseParam === ROUTES.POS_MESA_PHASE.PICKER ||
+      mesaPhaseParam === ROUTES.POS_MESA_PHASE.SIN_MESA
+    if (!syncedPhase) {
+      return (
+        <div className="flex-1 flex items-center justify-center">
+          <div className="w-12 h-12 border-4 border-orange-500 border-t-transparent rounded-full animate-spin" />
+        </div>
+      )
+    }
+  }
+
   // ── Mesa picker ────────────────────────────────────────────────────────────
   // Mostrar cuando:
   //   • el tenant tiene gestion_mesas activo
   //   • no llega ya una mesa preseleccionada desde la URL (ej: botón "Tomar pedido" de MesasView)
-  //   • el usuario no eligió explícitamente "sin mesa"
-  //   • el rol accede a mesas (repartidor siempre hace delivery → skip)
+  //   • `mesaPhase=picker` (no “sin mesa”)
+  //   • el rol accede al selector (repartidor → skip)
   const shouldShowPicker =
-    hasMesas &&
-    !mesaId &&
-    !bypassPicker &&
-    MESA_PICKER_ROLES.includes(rol)
+    pickerGateActive &&
+    mesaPhaseParam === ROUTES.POS_MESA_PHASE.PICKER
 
   if (shouldShowPicker) {
     return (
       <MesaPickerScreen
         tenantId={tenant.id}
-        onSinMesa={() => setBypassPicker(true)}
+        onSinMesa={() =>
+          router.replace(posHrefWithMesaPhase(ROUTES.POS_MESA_PHASE.SIN_MESA))
+        }
       />
     )
   }
