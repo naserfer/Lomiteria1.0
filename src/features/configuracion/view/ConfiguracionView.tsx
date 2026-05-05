@@ -3,9 +3,10 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
-import { Save, Mail, Phone, MapPin, Building2, FileText, Upload, Loader2, LayoutGrid } from 'lucide-react'
+import { Save, Mail, Phone, MapPin, Building2, FileText, Upload, Loader2, LayoutGrid, Printer } from 'lucide-react'
 import { useTenant } from '@/contexts/TenantContext'
 import { updateMyTenant, uploadLogoMyTenant, toggleGestionMesas, toggleDelivery } from '@/app/actions/tenant'
+import { getPrinterCopiasForTenant, updatePrinterCopiasForTenant } from '@/app/actions/printerCopiasSettings'
 
 const inputClass =
   'w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 dark:focus:ring-orange-400 dark:focus:border-orange-400 focus:outline-none transition bg-white dark:bg-gray-900/50 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500 disabled:opacity-50'
@@ -26,6 +27,13 @@ export function ConfiguracionView() {
   const [togglingDelivery, setTogglingDelivery] = useState(false)
   const [deliveryError, setDeliveryError] = useState('')
 
+  const [dobleCocina, setDobleCocina] = useState(false)
+  const [dobleFacturaCierre, setDobleFacturaCierre] = useState(false)
+  const [hasPrinterRow, setHasPrinterRow] = useState(true)
+  const [loadingCopias, setLoadingCopias] = useState(true)
+  const [togglingCopias, setTogglingCopias] = useState(false)
+  const [copiasError, setCopiasError] = useState('')
+
   const [form, setForm] = useState({
     nombre: '',
     logo_url: '',
@@ -37,6 +45,27 @@ export function ConfiguracionView() {
     actividad_economica: '',
     saludo_final: '',
   })
+
+  useEffect(() => {
+    if (!tenant?.id) return
+    let cancelled = false
+    setLoadingCopias(true)
+    setCopiasError('')
+    getPrinterCopiasForTenant(tenant.id).then((r) => {
+      if (cancelled) return
+      setLoadingCopias(false)
+      if (r.error || r.copias_ticket_cocina === null) {
+        if (r.error) setCopiasError(r.error)
+        return
+      }
+      setDobleCocina(r.copias_ticket_cocina === 2)
+      setDobleFacturaCierre(r.copias_factura_cierre === 2)
+      setHasPrinterRow(r.hasPrinterRow)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [tenant?.id])
 
   useEffect(() => {
     if (!tenant) return
@@ -68,6 +97,24 @@ export function ConfiguracionView() {
       return
     }
     await reloadTenant()
+  }
+
+  const applyCopias = async (next: { cocina: boolean; factura: boolean }) => {
+    if (!tenant?.id) return
+    setTogglingCopias(true)
+    setCopiasError('')
+    const result = await updatePrinterCopiasForTenant(tenant.id, {
+      copias_ticket_cocina: next.cocina ? 2 : 1,
+      copias_factura_cierre: next.factura ? 2 : 1,
+    })
+    setTogglingCopias(false)
+    if (result.error) {
+      setCopiasError(result.error)
+      return
+    }
+    setDobleCocina(next.cocina)
+    setDobleFacturaCierre(next.factura)
+    setHasPrinterRow(true)
   }
 
   const handleToggleDelivery = async (enabled: boolean) => {
@@ -392,6 +439,98 @@ export function ConfiguracionView() {
             )}
           </button>
         </form>
+      </div>
+
+      {/* Impresión (agente local) */}
+      <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900/50 overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+          <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+            <Printer className="w-5 h-5" />
+            Impresión en el local
+          </h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+            El agente de impresión en tu PC lee estos valores. Una copia por defecto; activá el doble solo si lo necesitás.
+          </p>
+        </div>
+        <div className="p-6 space-y-4">
+          {copiasError && (
+            <div className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 text-sm">
+              {copiasError}
+            </div>
+          )}
+          {loadingCopias ? (
+            <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Cargando preferencias de impresión…
+            </div>
+          ) : (
+            <>
+              {!hasPrinterRow && (
+                <p className="text-sm text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-900/25 border border-amber-200 dark:border-amber-800 rounded-xl px-3 py-2">
+                  Todavía no hay impresora registrada para este local en el sistema. Cuando KarúBox deje configurada la
+                  impresora del negocio, podrás activar el doble ticket acá.
+                </p>
+              )}
+              <div
+                className={`flex items-center justify-between gap-4 py-3 border-b border-gray-100 dark:border-gray-800 ${
+                  !hasPrinterRow || togglingCopias ? 'opacity-60' : ''
+                }`}
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-gray-900 dark:text-white">Doble ticket de cocina</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                    Al confirmar pedidos (pasan a FACT), imprimir dos tickets de cocina en lugar de uno.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={dobleCocina}
+                  disabled={!hasPrinterRow || togglingCopias}
+                  onClick={() => applyCopias({ cocina: !dobleCocina, factura: dobleFacturaCierre })}
+                  className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 disabled:cursor-not-allowed ${
+                    dobleCocina ? 'bg-orange-500' : 'bg-gray-200 dark:bg-gray-700'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
+                      dobleCocina ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+              <div
+                className={`flex items-center justify-between gap-4 py-3 ${
+                  !hasPrinterRow || togglingCopias ? 'opacity-60' : ''
+                }`}
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-gray-900 dark:text-white">Doble factura al cerrar cuenta</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                    Cada impresión de factura (por ejemplo al cerrar mesa) sale dos veces en papel. Independiente del ticket
+                    de cocina.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={dobleFacturaCierre}
+                  disabled={!hasPrinterRow || togglingCopias}
+                  onClick={() => applyCopias({ cocina: dobleCocina, factura: !dobleFacturaCierre })}
+                  className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 disabled:cursor-not-allowed ${
+                    dobleFacturaCierre ? 'bg-orange-500' : 'bg-gray-200 dark:bg-gray-700'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
+                      dobleFacturaCierre ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Módulos opcionales */}

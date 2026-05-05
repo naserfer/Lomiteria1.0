@@ -18,6 +18,8 @@ import {
 import { formatGuaranies } from '@/lib/utils/format'
 import { printService } from './printService'
 import { registrarCanjePuntos, registrarPuntosGanados } from '@/lib/db/puntos'
+import { requestAgentPrint } from '@/features/impresion/agentPrintClient'
+import { getPrinterCopiasConfig } from '@/features/impresion/printerCopias'
 
 /** Convierte error de Supabase en Error con mensaje legible para el usuario y la consola */
 function toError(err: PostgrestError | Error, context: string): Error {
@@ -317,6 +319,16 @@ export const orderService = {
       .eq('tenant_id', tenantId)
 
     if (errorConfirmacion) throw toError(errorConfirmacion, 'Error al confirmar el pedido para impresión')
+
+    // Doble ticket cocina: el agente ya imprime 1× al pasar a FACT; encolamos 1× más (misma cola que Reimprimir).
+    const copiasCfg = await getPrinterCopiasConfig(supabase, tenantId)
+    if (copiasCfg.copias_ticket_cocina === 2) {
+      setTimeout(() => {
+        requestAgentPrint(pedido.id, 'cocina', tenantId).catch((e) => {
+          console.warn('[confirmOrder] segunda copia cocina (reprint_solicitud):', e)
+        })
+      }, 450)
+    }
 
     if (mesaId) {
       const { error: mesaOcupadaError } = await supabase

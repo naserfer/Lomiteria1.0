@@ -31,7 +31,6 @@ export function PrinterConfigForm({ tenantId, tenantSlug, initialConfig, onSaved
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
-  // Actualizar printer_id sugerido cuando cambia tenantSlug
   useEffect(() => {
     if (!initialConfig && tenantSlug) {
       setForm((prev) => ({ ...prev, printer_id: `${tenantSlug}-printer-1` }))
@@ -50,7 +49,6 @@ export function PrinterConfigForm({ tenantId, tenantSlug, initialConfig, onSaved
     e.preventDefault()
     setError('')
 
-    // Validaciones básicas
     if (!form.printer_id.trim()) {
       setError('El ID de impresora es requerido')
       return

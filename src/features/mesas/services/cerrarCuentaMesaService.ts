@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/client'
 import { requestAgentPrint } from '@/features/impresion/agentPrintClient'
+import { getPrinterCopiasConfig } from '@/features/impresion/printerCopias'
 import {
   RECEPTOR_FACTURA_GENERICO_CI,
   RECEPTOR_FACTURA_GENERICO_NOMBRE,
@@ -353,8 +354,11 @@ export const cerrarCuentaMesaService = {
 
     let mensajeImpresion = 'No se imprimió factura en el cierre de cuenta.'
     if (facturaYaExistia || facturaEmitidaAhora) {
+      const { copias_factura_cierre } = await getPrinterCopiasConfig(supabase, params.tenantId)
       try {
-        mensajeImpresion = await requestAgentPrint(pedidoPrincipal.id, 'factura', params.tenantId)
+        for (let i = 0; i < copias_factura_cierre; i++) {
+          mensajeImpresion = await requestAgentPrint(pedidoPrincipal.id, 'factura', params.tenantId)
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : 'No se pudo encolar la impresión de factura.'
         warning = warning ? `${warning} ${message}` : message
