@@ -1,6 +1,6 @@
 # Agente: reimpresión solo cocina / solo factura (`reprint_solicitud`)
 
-**Importante:** en la **emisión inicial** (pedido que pasa a `FACT` con factura), el negocio requiere **dos** copias de factura (cliente + local). Eso se implementa en el listener de **pedidos**, no duplicando filas en `reprint_solicitud`. En **`reprint_solicitud`** con `tipo = 'factura'`, cada **INSERT = una sola** impresión de factura (reimpresión desde POS/historial).
+**Importante:** en la **emisión inicial** (pedido que pasa a `FACT` con factura), el negocio suele requerir **dos** copias de factura (cliente + local). Eso se implementa en el listener de **pedidos**, no duplicando filas en `reprint_solicitud`. En **`reprint_solicitud`** con `tipo = 'factura'`, cada **INSERT = un evento**; las **copias en papel** las decide el agente según **`printer_config.copias_factura_cierre`** (1 o 2). Detalle: [`AGENTE_COPIAS_PRINTER_CONFIG.md`](AGENTE_COPIAS_PRINTER_CONFIG.md).
 
 Detalle: [`AGENTE_FACTURA_EMISION_DOS_COPIAS.md`](AGENTE_FACTURA_EMISION_DOS_COPIAS.md).
 
@@ -12,9 +12,16 @@ En su lugar inserta filas en **`public.reprint_solicitud`** (`tipo` = `'cocina'`
 
 - Pedido con `mesa_id` al confirmar (`EDIT -> FACT`): solo cocina, sin factura.
 - Factura de mesa se imprime al cerrar cuenta mediante `reprint_solicitud.tipo='factura'`.
-- Cada cierre de cuenta de mesa imprime 1 factura por `INSERT`.
+- Cada cierre de cuenta de mesa encola **un** `INSERT`; cuántas copias físicas salen lo decide el agente según `printer_config.copias_factura_cierre` (1 o 2). El admin del local configura eso en **`/home/configuracion`** (migración `database/32_printer_config_copias.sql`).
 
 Contrato unificado: [`CONTRATO_MESAS_IMPRESION_OPERATIVO.md`](CONTRATO_MESAS_IMPRESION_OPERATIVO.md).
+
+## Copias en `printer_config` (agente)
+
+| Columna | Quién la edita | Agente |
+|---------|----------------|--------|
+| `copias_ticket_cocina` | Admin del local → Configuración del negocio | Tickets cocina al pasar pedido a `FACT`: 1 o 2 veces. |
+| `copias_factura_cierre` | Admin del local → Configuración del negocio | `reprint_solicitud` tipo `factura`: imprimir esa cantidad de veces por evento. |
 
 ## Qué hacer en el agente (listener Supabase)
 

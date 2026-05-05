@@ -1078,10 +1078,12 @@ export interface UpdatePrinterConfigData {
  * Obtiene la configuración de impresora de un tenant.
  */
 export async function getPrinterConfigOwner(tenantId: string) {
-  const { error: authError, supabase } = await assertOwner()
-  if (authError || !supabase) return { error: authError, config: null }
+  const { error: authError } = await assertOwner()
+  if (authError) return { error: authError, config: null }
 
-  const { data, error } = await supabase
+  // Service role: el owner gestiona cualquier tenant; con RLS el JWT no coincide con lomiteria_id.
+  const adminClient = createAdminClient()
+  const { data, error } = await adminClient
     .from('printer_config')
     .select('*')
     .eq('lomiteria_id', tenantId)
@@ -1100,15 +1102,16 @@ export async function getPrinterConfigOwner(tenantId: string) {
  * Usa UPSERT para evitar conflictos.
  */
 export async function upsertPrinterConfig(tenantId: string, data: CreatePrinterConfigData) {
-  const { error: authError, supabase } = await assertOwner()
-  if (authError || !supabase) return { error: authError }
+  const { error: authError } = await assertOwner()
+  if (authError) return { error: authError }
 
   if (!data.printer_id.trim()) return { error: 'El ID de impresora es requerido' }
   if (!data.agent_ip.trim()) return { error: 'La IP del agente es requerida' }
   if (!data.agent_port || data.agent_port <= 0) return { error: 'El puerto debe ser mayor a 0' }
   if (data.agent_port > 65535) return { error: 'El puerto debe ser menor a 65536' }
 
-  const { error } = await supabase
+  const adminClient = createAdminClient()
+  const { error } = await adminClient
     .from('printer_config')
     .upsert({
       lomiteria_id: tenantId,
@@ -1133,9 +1136,10 @@ export async function upsertPrinterConfig(tenantId: string, data: CreatePrinterC
  * Actualiza campos específicos de la configuración de impresora.
  */
 export async function updatePrinterConfig(tenantId: string, data: UpdatePrinterConfigData) {
-  const { error: authError, supabase } = await assertOwner()
-  if (authError || !supabase) return { error: authError }
+  const { error: authError } = await assertOwner()
+  if (authError) return { error: authError }
 
+  const adminClient = createAdminClient()
   const updatePayload: Record<string, unknown> = { updated_at: new Date().toISOString() }
 
   if (data.printer_id !== undefined) {
@@ -1156,7 +1160,7 @@ export async function updatePrinterConfig(tenantId: string, data: UpdatePrinterC
   if (data.ubicacion !== undefined) updatePayload.ubicacion = data.ubicacion?.trim() || null
   if (data.activo !== undefined) updatePayload.activo = data.activo
 
-  const { error } = await supabase
+  const { error } = await adminClient
     .from('printer_config')
     .update(updatePayload)
     .eq('lomiteria_id', tenantId)
@@ -1173,10 +1177,11 @@ export async function updatePrinterConfig(tenantId: string, data: UpdatePrinterC
  * Elimina la configuración de impresora de un tenant.
  */
 export async function deletePrinterConfig(tenantId: string) {
-  const { error: authError, supabase } = await assertOwner()
-  if (authError || !supabase) return { error: authError }
+  const { error: authError } = await assertOwner()
+  if (authError) return { error: authError }
 
-  const { error } = await supabase
+  const adminClient = createAdminClient()
+  const { error } = await adminClient
     .from('printer_config')
     .delete()
     .eq('lomiteria_id', tenantId)

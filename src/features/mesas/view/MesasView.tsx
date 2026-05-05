@@ -14,6 +14,7 @@ import { cerrarCuentaMesaService } from '../services/cerrarCuentaMesaService'
 import { DetalleMesaModal } from '../components/DetalleMesaModal'
 import { useRealtimeMesas } from '../hooks/useRealtimeMesas'
 import type { EstadoMesa, Mesa, MesaReserva, ResumenMesa } from '../types/mesas.types'
+import { MesaPedidoCocinaToastHost } from '@/features/pos/components/MesaPedidoCocinaToastHost'
 
 // ─── Estilos por estado ────────────────────────────────────────────────────────
 
@@ -46,7 +47,7 @@ const ESTADO_LABEL: Record<EstadoMesa, string> = {
 
 export default function MesasView() {
   const router = useRouter()
-  const { tenant, usuario } = useTenant()
+  const { tenant, usuario, darkMode } = useTenant()
 
   // ── Datos ──
   const [loading, setLoading]     = useState(true)
@@ -329,12 +330,20 @@ export default function MesasView() {
 
   const setEstado = useCallback(async (mesaId: string, estado: EstadoMesa) => {
     if (!tenant?.id) return
+    // Snapshot del estado previo para rollback si la mutación falla.
+    const estadoPrevio = mesasRef.current.find(m => m.id === mesaId)?.estado
     setSavingId(mesaId)
+    // Update optimista: pintamos el nuevo estado al instante en quien dispara
+    // la acción. Los demás clientes lo reciben por realtime; si la mutación
+    // falla revertimos localmente.
+    setMesas(prev => prev.map(m => m.id === mesaId ? { ...m, estado } : m))
     try {
       await mesasService.setEstadoMesa(tenant.id, mesaId, estado)
-      setMesas(prev => prev.map(m => m.id === mesaId ? { ...m, estado } : m))
       setMesaFeedback(mesaId, 'success', `Mesa actualizada a ${ESTADO_LABEL[estado]}.`)
     } catch (e: any) {
+      if (estadoPrevio) {
+        setMesas(prev => prev.map(m => m.id === mesaId ? { ...m, estado: estadoPrevio } : m))
+      }
       setMesaFeedback(mesaId, 'error', e?.message ?? 'No se pudo actualizar el estado.')
     } finally {
       setSavingId(null)
@@ -664,6 +673,7 @@ export default function MesasView() {
   // ── Render ────────────────────────────────────────────────────────────────────
 
   return (
+    <>
     <div className="h-full flex flex-col min-h-0">
       <div className="flex-1 overflow-y-auto px-4 md:px-6 py-4 space-y-6">
         <div className="max-w-7xl mx-auto space-y-6">
@@ -1244,5 +1254,7 @@ export default function MesasView() {
         </div>
       </div>
     </div>
+    <MesaPedidoCocinaToastHost darkMode={darkMode} />
+    </>
   )
 }

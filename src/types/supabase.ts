@@ -320,6 +320,8 @@ export interface Database {
           nombre_impresora: string | null
           ubicacion: string | null
           activo: boolean
+          copias_ticket_cocina: number
+          copias_factura_cierre: number
           created_at: string
           updated_at: string
         }
@@ -333,6 +335,8 @@ export interface Database {
           nombre_impresora?: string | null
           ubicacion?: string | null
           activo?: boolean
+          copias_ticket_cocina?: number
+          copias_factura_cierre?: number
           created_at?: string
           updated_at?: string
         }
@@ -346,6 +350,8 @@ export interface Database {
           nombre_impresora?: string | null
           ubicacion?: string | null
           activo?: boolean
+          copias_ticket_cocina?: number
+          copias_factura_cierre?: number
           created_at?: string
           updated_at?: string
         }

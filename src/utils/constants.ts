@@ -39,7 +39,19 @@ export const POS_FACTURA_MODAL_ENABLED = false
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Ajustes a medida para Oriental 8.
- * Si el tenant cambia de ID, actualizar solo este string.
+ * Tenants que comparten los mismos ajustes de POS/mesas que Oriental 8
+ * (p. ej. ver detalle de mesa, ítem manual en carrito).
+ * Para sumar otro cliente, solo agrega su UUID aquí.
  */
-export const TENANT_ID_ORIENTAL = '565c0876-2235-4e7c-bb54-89c466fe4583'
+export const TENANT_IDS_ORIENTAL_CUSTOM: readonly string[] = [
+  '565c0876-2235-4e7c-bb54-89c466fe4583',
+  '26ab2897-c8d4-4768-be6e-7c1fee8500e9'
+]
+
+/** True si `tenantId` está en {@link TENANT_IDS_ORIENTAL_CUSTOM}. */
+export function tenantHasOrientalCustomPOSFeatures(
+  tenantId: string | undefined | null,
+): boolean {
+  if (tenantId == null || tenantId === '') return false
+  return TENANT_IDS_ORIENTAL_CUSTOM.includes(tenantId)
+}

@@ -1,11 +1,13 @@
 import { createClient } from '@/lib/supabase/client'
 import { requestAgentPrint } from '@/features/impresion/agentPrintClient'
+import { getPrinterCopiasConfig } from '@/features/impresion/printerCopias'
 import {
   RECEPTOR_FACTURA_GENERICO_CI,
   RECEPTOR_FACTURA_GENERICO_NOMBRE,
   RECEPTOR_FACTURA_GENERICO_RUC,
   clienteTieneRucParaFactura,
 } from '@/features/pos/utils/pos.utils'
+import { broadcastMesasChanged } from './mesasRealtimeBroadcast'
 
 interface CerrarCuentaMesaParams {
   tenantId: string
@@ -353,8 +355,11 @@ export const cerrarCuentaMesaService = {
 
     let mensajeImpresion = 'No se imprimió factura en el cierre de cuenta.'
     if (facturaYaExistia || facturaEmitidaAhora) {
+      const { copias_factura_cierre } = await getPrinterCopiasConfig(supabase, params.tenantId)
       try {
-        mensajeImpresion = await requestAgentPrint(pedidoPrincipal.id, 'factura', params.tenantId)
+        for (let i = 0; i < copias_factura_cierre; i++) {
+          mensajeImpresion = await requestAgentPrint(pedidoPrincipal.id, 'factura', params.tenantId)
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : 'No se pudo encolar la impresión de factura.'
         warning = warning ? `${warning} ${message}` : message
@@ -369,6 +374,8 @@ export const cerrarCuentaMesaService = {
     })
 
     if (liberarError) throw new Error(`Se emitió/encoló impresión, pero no se pudo liberar la mesa: ${liberarError.message}`)
+
+    void broadcastMesasChanged(params.tenantId, 'cerrarCuenta:liberar')
 
     return {
       pedidoId: pedidoPrincipal.id,
