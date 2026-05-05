@@ -70,7 +70,7 @@ interface CartState {
   upsertSauceItem: (producto: { id: string; nombre: string; descripcion?: string; precio: number }, cantidad: number) => void
   addComboItem: (combo: { id: string; nombre: string; descripcion?: string; precio: number; comboItems: ComboProductItem[] }) => void
   addCanjeItem: (item: { id: string; nombre: string; descripcion?: string; puntos_canje: number; cantidad?: number }) => void
-  addManualItem: (nombre: string) => void
+  addManualItem: (nombre: string, precio?: number) => void
   removeItem: (itemId: string) => void
   updateQuantity: (itemId: string, cantidad: number) => void
   updateItemCustomization: (itemId: string, customization: CartItemCustomization | null, extraCostPerUnit: number) => void
@@ -305,9 +305,10 @@ export const useCartStore = create<CartState>((set, get) => ({
     })
   },
 
-  addManualItem: (nombre) => {
+  addManualItem: (nombre, precio = 0) => {
     const cleanName = nombre.trim()
     if (!cleanName) return
+    const safePrice = Math.max(0, Math.round(Number(precio) || 0))
 
     set({
       items: [
@@ -316,9 +317,9 @@ export const useCartStore = create<CartState>((set, get) => ({
           id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `temp-${Date.now()}-${Math.random()}`,
           producto_id: null,
           nombre: cleanName,
-          precio: 0,
+          precio: safePrice,
           cantidad: 1,
-          subtotal: 0,
+          subtotal: safePrice,
           extraCostPerUnit: 0,
           tipo: 'producto',
           puntos_extra: 0,

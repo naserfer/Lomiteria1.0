@@ -52,6 +52,18 @@ interface Props {
   allowManualItem?: boolean
 }
 
+const parseManualPriceInput = (value: string): number => {
+  const digitsOnly = value.replace(/\D/g, '')
+  const parsed = Number(digitsOnly)
+  return Math.max(0, Math.round(Number.isFinite(parsed) ? parsed : 0))
+}
+
+const formatManualPriceInput = (value: string): string => {
+  const amount = parseManualPriceInput(value)
+  if (amount <= 0) return ''
+  return new Intl.NumberFormat('es-PY').format(amount)
+}
+
 const normalizeExtraToken = (value: string) =>
   value
     .toLowerCase()
@@ -83,6 +95,7 @@ export default function Cart({
   const { items, cliente, tipo, removeItem, updateQuantity, getTotal, getTotalPuntos, setTipo, upsertSauceItem, addManualItem } = useCartStore()
   const [saucesOpen, setSaucesOpen] = useState(false)
   const [manualItemName, setManualItemName] = useState('')
+  const [manualItemPrice, setManualItemPrice] = useState('')
   const orderTypeInactiveClasses = darkMode
     ? 'bg-gray-700/60 text-gray-200 border-gray-600 hover:bg-gray-600'
     : 'bg-gray-100 text-gray-700 border-gray-200 hover:bg-gray-200'
@@ -110,11 +123,15 @@ export default function Cart({
     return map
   }, [sauceItems])
 
+  const manualItemRequiresImmediatePrice = !isMesaOrder
+
   const handleAddManualItem = () => {
     const cleanName = manualItemName.trim()
     if (!cleanName) return
-    addManualItem(cleanName.slice(0, 80))
+    const parsedPrice = parseManualPriceInput(manualItemPrice)
+    addManualItem(cleanName.slice(0, 80), parsedPrice)
     setManualItemName('')
+    setManualItemPrice('')
   }
 
   return (
@@ -179,7 +196,11 @@ export default function Cart({
                       )}
                     </div>
                     <div className={`mt-0.5 text-xs ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                      {item.is_manual ? 'Precio se carga al cerrar cuenta' : 'Tocar para editar ingredientes'}
+                      {item.is_manual
+                        ? manualItemRequiresImmediatePrice
+                          ? 'Precio cargado en carrito (venta inmediata)'
+                          : 'Precio se carga al cerrar cuenta'
+                        : 'Tocar para editar ingredientes'}
                     </div>
                   </button>
                   <button
@@ -363,7 +384,7 @@ export default function Cart({
             <p className={`text-[11px] font-semibold mb-2 ${darkMode ? 'text-amber-200' : 'text-amber-700'}`}>
               Item rápido (fuera de carta)
             </p>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
               <input
                 value={manualItemName}
                 onChange={(e) => setManualItemName(e.target.value)}
@@ -374,21 +395,53 @@ export default function Cart({
                   }
                 }}
                 placeholder="Ej: Huevo frito"
-                className={`flex-1 rounded-lg border px-2.5 py-2 text-xs ${
+                className={`w-full min-w-0 rounded-lg border px-2.5 py-2 text-xs ${
                   darkMode
                     ? 'border-gray-600 bg-gray-700 text-gray-100 placeholder:text-gray-400'
                     : 'border-gray-200 bg-white text-gray-900 placeholder:text-gray-400'
                 }`}
               />
-              <button
-                type="button"
-                onClick={handleAddManualItem}
-                disabled={!manualItemName.trim()}
-                className="rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
-              >
-                Agregar
-              </button>
+              <div className="flex items-center gap-2 sm:shrink-0">
+                {manualItemRequiresImmediatePrice && (
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={manualItemPrice}
+                    onChange={(e) => setManualItemPrice(formatManualPriceInput(e.target.value))}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        handleAddManualItem()
+                      }
+                    }}
+                    placeholder="Gs"
+                    className={`w-full min-w-0 sm:w-24 rounded-lg border px-2.5 py-2 text-xs ${
+                      darkMode
+                        ? 'border-gray-600 bg-gray-700 text-gray-100 placeholder:text-gray-400'
+                        : 'border-gray-200 bg-white text-gray-900 placeholder:text-gray-400'
+                    }`}
+                  />
+                )}
+                <button
+                  type="button"
+                  onClick={handleAddManualItem}
+                  disabled={!manualItemName.trim()}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-amber-500 text-xs font-semibold text-white disabled:opacity-50 sm:h-auto sm:w-auto sm:px-3 sm:py-2"
+                  aria-label="Agregar item rápido"
+                  title="Agregar"
+                >
+                  <span className="sm:hidden">
+                    <Plus size={16} />
+                  </span>
+                  <span className="hidden sm:inline">Agregar</span>
+                </button>
+              </div>
             </div>
+            {manualItemRequiresImmediatePrice && (
+              <p className={`mt-1 text-[10px] ${darkMode ? 'text-amber-300/90' : 'text-amber-700'}`}>
+                En pedidos sin mesa, puedes cargar el precio ahora o dejarlo en 0 si no deseas cobrar extra.
+              </p>
+            )}
           </div>
         </div>
       )}

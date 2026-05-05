@@ -45,7 +45,6 @@ export function useOrderConfirmation(mesaId?: string | null) {
         'Agregá al menos un producto antes de confirmar.'
       )
     }
-
     if (!usuario || !tenant) {
       return showInlineError(
         'No encontramos el usuario',
@@ -75,7 +74,6 @@ export function useOrderConfirmation(mesaId?: string | null) {
         'Volvé a iniciar sesión para poder registrar ventas.'
       )
     }
-
     setIsProcessing(true)
     try {
       const total = getTotal()
@@ -132,7 +130,6 @@ export function useOrderConfirmation(mesaId?: string | null) {
         'Volvé a iniciar sesión para poder registrar ventas.'
       )
     }
-
     setIsProcessing(true)
 
     try {
