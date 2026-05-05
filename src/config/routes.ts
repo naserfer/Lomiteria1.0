@@ -50,6 +50,15 @@ export const ROUTES = {
     POS_PICKER:  'pos-picker',   // Cajero/admin vino desde el selector de mesas del POS
   } as const,
 
+  /**
+   * Query `mesaPhase` en `/home/pos` (locales con gestión de mesas, rol admin/cajero):
+   * selector de mesa vs. venta sin mesa. Necesario para breadcrumb y navegación coherente.
+   */
+  POS_MESA_PHASE: {
+    PICKER: 'picker',
+    SIN_MESA: 'sin_mesa',
+  } as const,
+
   // Rutas de API (futuro)
   API: {
     AUTH: '/api/auth',
@@ -58,6 +67,13 @@ export const ROUTES = {
     CLIENTES: '/api/clientes',
   },
 } as const
+
+export type PosMesaPhase =
+  (typeof ROUTES.POS_MESA_PHASE)[keyof typeof ROUTES.POS_MESA_PHASE]
+
+export function posHrefWithMesaPhase(phase: PosMesaPhase): string {
+  return `${ROUTES.PROTECTED.POS}?mesaPhase=${phase}`
+}
 
 /** Ruta pública de carta QR por local (slug de tenant). */
 export function getPublicCartaQrPath(tenantSlug: string): string {

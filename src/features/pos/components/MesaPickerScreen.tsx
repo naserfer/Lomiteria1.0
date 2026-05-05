@@ -7,11 +7,12 @@ import {
 } from 'lucide-react'
 import type { ResumenMesa } from '@/features/mesas/types/mesas.types'
 import { useTenant } from '@/contexts/TenantContext'
-import { createClient } from '@/lib/supabase/client'
 import { mesasService } from '@/features/mesas/services/mesasService'
 import { cerrarCuentaMesaService } from '@/features/mesas/services/cerrarCuentaMesaService'
+import { useRealtimeMesas } from '@/features/mesas/hooks/useRealtimeMesas'
 import { ROUTES } from '@/config/routes'
-import type { EstadoMesa, Mesa } from '@/features/mesas/types/mesas.types'
+import { MesaPedidoCocinaToastHost } from './MesaPedidoCocinaToastHost'
+import type { EstadoMesa, Mesa, MesaReserva } from '@/features/mesas/types/mesas.types'
 import { DetalleMesaModal } from '@/features/mesas/components/DetalleMesaModal'
 
 // ─── Estilos por estado ───────────────────────────────────────────────────────
@@ -56,6 +57,7 @@ export function MesaPickerScreen({ tenantId, onSinMesa }: MesaPickerScreenProps)
   const { darkMode, usuario } = useTenant()
 
   const [mesas,          setMesas]          = useState<Mesa[]>([])
+  const [reservas,       setReservas]       = useState<MesaReserva[]>([])
   const [loading,        setLoading]        = useState(true)
   const [refreshing,     setRefreshing]     = useState(false)
   const [navigatingTo,   setNavigatingTo]   = useState<string | null>(null)
@@ -99,33 +101,55 @@ export function MesaPickerScreen({ tenantId, onSinMesa }: MesaPickerScreenProps)
     }
   }, [tenantId, fetchResumenes])
 
+  const fetchReservas = useCallback(async () => {
+    try {
+      const data = await mesasService.listReservas(tenantId)
+      setReservas(data)
+    } catch {
+      // silencioso — sin reservas la card cae al estado base
+    }
+  }, [tenantId])
+
   useEffect(() => { void fetchMesas() }, [fetchMesas])
+  useEffect(() => { void fetchReservas() }, [fetchReservas])
 
   // ── Realtime ──────────────────────────────────────────────────────────────────
+  // Suscripción compartida con MesasView vía useRealtimeMesas: cuando cualquier
+  // usuario del mismo tenant cambia el estado de una mesa (ocupar al confirmar
+  // pedido, liberar al cerrar cuenta, bloquear/reservar desde admin) este picker
+  // refresca el grid sin necesidad de refresh manual.
 
   const mesasRef = useRef(mesas)
   useEffect(() => { mesasRef.current = mesas }, [mesas])
 
-  useEffect(() => {
-    const supabase    = createClient()
-    const debounceRef = { current: null as ReturnType<typeof setTimeout> | null }
+  useRealtimeMesas(tenantId, {
+    onMesasChange: () => { void fetchMesas(true) },
+    onResumenInvalidate: () => { void fetchResumenes(mesasRef.current) },
+    onReservasChange: () => { void fetchReservas() },
+  })
 
-    const refresh = () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current)
-      debounceRef.current = setTimeout(() => void fetchResumenes(mesasRef.current), 600)
+  // Reservas pendientes / confirmadas desde HOY agrupadas por mesa, para
+  // pintar el badge "Próximas reservas" en la card del picker (mismo criterio
+  // que MesasView para mantener consistencia entre admin y mozos).
+  const reservasActivasPorMesa = useMemo(() => {
+    const now = new Date()
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+    const map = new Map<string, MesaReserva[]>()
+    for (const r of reservas) {
+      if (!['pendiente', 'confirmada'].includes(r.estado)) continue
+      const start = new Date(r.inicio_at)
+      const dayStart = new Date(start.getFullYear(), start.getMonth(), start.getDate()).getTime()
+      if (dayStart < startOfToday) continue
+      const list = map.get(r.mesa_id) ?? []
+      list.push(r)
+      map.set(r.mesa_id, list)
     }
-
-    const channel = supabase
-      .channel(`mesas-resumen-picker-${tenantId}`)
-      .on('postgres_changes', { event: '*',      schema: 'public', table: 'pedidos',      filter: `tenant_id=eq.${tenantId}` }, refresh)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'items_pedido' }, refresh)
-      .subscribe()
-
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current)
-      void supabase.removeChannel(channel)
-    }
-  }, [tenantId, fetchResumenes])
+    map.forEach((list, mesaId) => {
+      list.sort((a, b) => new Date(a.inicio_at).getTime() - new Date(b.inicio_at).getTime())
+      map.set(mesaId, list)
+    })
+    return map
+  }, [reservas])
 
   const resumen = useMemo(() => ({
     libres:    mesas.filter(m => m.estado === 'libre').length,
@@ -147,6 +171,11 @@ export function MesaPickerScreen({ tenantId, onSinMesa }: MesaPickerScreenProps)
 
   const handleCerrarCuentaMesa = useCallback(async (mesa: Mesa, metodo?: 'tarjeta' | 'efectivo') => {
     setClosingCuentaMesaId(mesa.id)
+    // Snapshot para rollback si el cierre falla.
+    const estadoPrevio = mesa.estado
+    // Update optimista: la mesa pasa a libre al instante. El realtime confirma
+    // a los demás dispositivos del tenant; si falla, revertimos abajo.
+    setMesas(prev => prev.map(m => m.id === mesa.id ? { ...m, estado: 'libre' } : m))
     try {
       const result = await cerrarCuentaMesaService.cerrarCuenta({
         tenantId,
@@ -169,6 +198,7 @@ export function MesaPickerScreen({ tenantId, onSinMesa }: MesaPickerScreenProps)
       }))
       await fetchMesas(true)
     } catch (e: any) {
+      setMesas(prev => prev.map(m => m.id === mesa.id ? { ...m, estado: estadoPrevio } : m))
       setMesaFeedbackById(prev => ({
         ...prev,
         [mesa.id]: { type: 'error', message: e?.message ?? 'No se pudo cerrar la cuenta de la mesa.' },
@@ -346,6 +376,7 @@ export function MesaPickerScreen({ tenantId, onSinMesa }: MesaPickerScreenProps)
               {mesas.map(mesa => {
                 const isNavigating = navigatingTo === mesa.id
                 const resumenMesa = resumenByMesa[mesa.id]
+                const reservasMesa = reservasActivasPorMesa.get(mesa.id) ?? []
                 const canTakeOrder = mesa.estado !== 'bloqueada'
 
                 return (
@@ -385,6 +416,19 @@ export function MesaPickerScreen({ tenantId, onSinMesa }: MesaPickerScreenProps)
                           : resumenMesa
                             ? `${resumenMesa.total_items} items · Gs. ${resumenMesa.total_acumulado.toLocaleString('es-PY')}`
                             : 'Pedido activo sin resumen'}
+                      </div>
+                    )}
+
+                    {reservasMesa.length > 0 && (
+                      <div className="rounded-lg border border-blue-200 dark:border-blue-900/50 bg-blue-50 dark:bg-blue-950/20 px-2.5 py-1.5">
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-blue-600 dark:text-blue-400 mb-0.5">
+                          Próximas reservas
+                        </p>
+                        {reservasMesa.slice(0, 2).map(r => (
+                          <p key={r.id} className="text-[11px] text-blue-700 dark:text-blue-300 truncate">
+                            {r.nombre_reserva} · {new Date(r.inicio_at).toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' })}
+                          </p>
+                        ))}
                       </div>
                     )}
 
@@ -447,10 +491,12 @@ export function MesaPickerScreen({ tenantId, onSinMesa }: MesaPickerScreenProps)
         </div>
       </div>
 
+      <MesaPedidoCocinaToastHost darkMode={darkMode} />
+
       <DetalleMesaModal
         tenantId={tenantId}
         mesa={selectedMesa}
-        reservasMesa={[]}
+        reservasMesa={selectedMesa ? (reservasActivasPorMesa.get(selectedMesa.id) ?? []) : []}
         resumenPedido={selectedMesa ? (resumenByMesa[selectedMesa.id] ?? null) : null}
         loadingResumen={loadingResumen}
         isClosingMesa={selectedMesa ? closingCuentaMesaId === selectedMesa.id : false}
