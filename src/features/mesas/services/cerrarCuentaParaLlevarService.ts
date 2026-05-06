@@ -7,25 +7,6 @@ import {
   RECEPTOR_FACTURA_GENERICO_RUC,
   clienteTieneRucParaFactura,
 } from '@/features/pos/utils/pos.utils'
-import { broadcastMesasChanged } from './mesasRealtimeBroadcast'
-
-interface CerrarCuentaMesaParams {
-  tenantId: string
-  mesaId: string
-  usuarioId?: string | null
-  metodoCobro?: 'tarjeta' | 'efectivo' | null
-}
-
-interface CerrarCuentaMesaResult {
-  pedidoId: string
-  numeroPedido: number
-  facturaEmitidaAhora: boolean
-  facturaYaExistia: boolean
-  mensajeImpresion: string
-  warning: string | null
-}
-
-const MAX_PEDIDOS_CIERRE_MESA = 12
 
 async function buildMissingFiscalConfigWarning(
   supabase: ReturnType<typeof createClient>,
@@ -33,7 +14,7 @@ async function buildMissingFiscalConfigWarning(
 ): Promise<string> {
   const baseMessage =
     `No hay configuración de facturación para este local (tenant ${tenantId}). ` +
-    'Se cerró la mesa sin emitir/imprimir factura.'
+    'No se pudo emitir/imprimir factura al cerrar la cuenta.'
 
   try {
     const { data: latestConfigs, error } = await supabase
@@ -71,138 +52,43 @@ async function buildMissingFiscalConfigWarning(
   }
 }
 
-export const cerrarCuentaMesaService = {
-  async cerrarCuenta(params: CerrarCuentaMesaParams): Promise<CerrarCuentaMesaResult> {
+interface CerrarCuentaParaLlevarParams {
+  tenantId: string
+  pedidoId: string
+  usuarioId?: string | null
+  metodoCobro?: 'tarjeta' | 'efectivo' | null
+}
+
+interface CerrarCuentaParaLlevarResult {
+  pedidoId: string
+  numeroPedido: number
+  facturaEmitidaAhora: boolean
+  facturaYaExistia: boolean
+  mensajeImpresion: string
+  warning: string | null
+}
+
+export const cerrarCuentaParaLlevarService = {
+  async cerrarCuenta(params: CerrarCuentaParaLlevarParams): Promise<CerrarCuentaParaLlevarResult> {
     const supabase = createClient()
 
-    const { data: mesa, error: mesaError } = await supabase
-      .from('mesas')
-      .select('id, numero, activa, updated_at')
-      .eq('tenant_id', params.tenantId)
-      .eq('id', params.mesaId)
-      .maybeSingle()
-
-    if (mesaError) throw new Error(`No se pudo validar la mesa: ${mesaError.message}`)
-    if (!mesa) throw new Error('La mesa no existe en este local.')
-    if (!mesa.activa) throw new Error('La mesa está inactiva.')
-
-    // Cerrar solo pedidos de la sesión actual de la mesa (evita reimprimir históricos).
-    // Corte de sesión: último evento de "liberar_mesa". Si no existe, no filtramos.
-    const { data: ultimoEventoLiberar } = await supabase
-      .from('mesa_eventos')
-      .select('created_at')
-      .eq('tenant_id', params.tenantId)
-      .eq('mesa_id', params.mesaId)
-      .eq('tipo', 'liberar_mesa')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
-
-    const pedidosBaseQuery = supabase
+    const { data: pedidoPrincipal, error: pedidoError } = await supabase
       .from('pedidos')
-      .select('id, numero_pedido, total, cliente_id, estado, estado_pedido, created_at')
+      .select('id, numero_pedido, total, cliente_id, estado, estado_pedido, mesa_id')
       .eq('tenant_id', params.tenantId)
-      .eq('mesa_id', params.mesaId)
-      .eq('estado_pedido', 'FACT')
-      .neq('estado', 'cancelado')
+      .eq('id', params.pedidoId)
+      .maybeSingle()
 
-    let pedidosActivos: Array<{
-      id: string
-      numero_pedido: number
-      total: number
-      cliente_id: string | null
-      estado: string
-      estado_pedido: string
-      created_at: string
-    }> | null = null
-    let pedidoError: { message: string } | null = null
-
-    if (ultimoEventoLiberar?.created_at) {
-      const { data, error } = await pedidosBaseQuery
-        .gte('created_at', ultimoEventoLiberar.created_at)
-        .order('created_at', { ascending: true })
-      pedidosActivos = data
-      pedidoError = error
-    } else {
-      const { data, error } = await pedidosBaseQuery.order('created_at', { ascending: true })
-      pedidosActivos = data
-      pedidoError = error
+    if (pedidoError) throw new Error(`No se pudo cargar el pedido: ${pedidoError.message}`)
+    if (!pedidoPrincipal) throw new Error('El pedido no existe.')
+    if (pedidoPrincipal.mesa_id != null) {
+      throw new Error('Este pedido está vinculado a una mesa. Usá el cierre de cuenta de mesa.')
     }
-
-    if (pedidoError) throw new Error(`No se pudo obtener el pedido activo de mesa: ${pedidoError.message}`)
-
-    // Fallback: si el corte por sesión quedó demasiado estricto, usar el último FACT.
-    if ((!pedidosActivos || pedidosActivos.length === 0) && ultimoEventoLiberar?.created_at) {
-      const { data: ultimoPedidoFact, error: ultimoPedidoFactError } = await pedidosBaseQuery
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-      if (ultimoPedidoFactError) {
-        throw new Error(`No se pudo obtener pedido FACT de respaldo: ${ultimoPedidoFactError.message}`)
-      }
-      pedidosActivos = ultimoPedidoFact ? [ultimoPedidoFact] : []
+    if (pedidoPrincipal.estado === 'cancelado') {
+      throw new Error('El pedido está cancelado.')
     }
-
-    if (!pedidosActivos || pedidosActivos.length === 0) {
-      throw new Error('No hay pedidos FACT para cerrar en esta mesa.')
-    }
-    if (pedidosActivos.length > MAX_PEDIDOS_CIERRE_MESA) {
-      throw new Error(
-        `Se detectaron ${pedidosActivos.length} pedidos FACT para esta mesa (límite ${MAX_PEDIDOS_CIERRE_MESA}). ` +
-        'Se detuvo el cierre para evitar reimpresiones masivas. Revisá pedidos históricos vinculados a la mesa.'
-      )
-    }
-
-    let pedidoPrincipal = pedidosActivos[pedidosActivos.length - 1]
-
-    // Consolidar sesión de mesa en un solo pedido FACT para emitir/imprimir UNA sola factura.
-    if (pedidosActivos.length > 1) {
-      const secundarios = pedidosActivos.filter((p) => p.id !== pedidoPrincipal.id)
-      const secundariosIds = secundarios.map((p) => p.id)
-
-      // 1) Mover todos los items de pedidos secundarios al principal.
-      const { error: moveItemsError } = await supabase
-        .from('items_pedido')
-        .update({ pedido_id: pedidoPrincipal.id })
-        .in('pedido_id', secundariosIds)
-      if (moveItemsError) {
-        throw new Error(`No se pudo consolidar items en el pedido principal: ${moveItemsError.message}`)
-      }
-
-      // 2) Recalcular total del principal con los subtotales reales de items (incluye extras/notas).
-      const { data: itemsConsolidados, error: totalConsolidadoError } = await supabase
-        .from('items_pedido')
-        .select('subtotal')
-        .eq('pedido_id', pedidoPrincipal.id)
-      if (totalConsolidadoError) {
-        throw new Error(`No se pudo recalcular total consolidado: ${totalConsolidadoError.message}`)
-      }
-      const totalConsolidado = (itemsConsolidados ?? []).reduce(
-        (sum, row) => sum + Number(row.subtotal ?? 0),
-        0
-      )
-
-      const nowIso = new Date().toISOString()
-      const { error: updatePrincipalError } = await supabase
-        .from('pedidos')
-        .update({ total: totalConsolidado, updated_at: nowIso })
-        .eq('id', pedidoPrincipal.id)
-        .eq('tenant_id', params.tenantId)
-      if (updatePrincipalError) {
-        throw new Error(`No se pudo actualizar total consolidado del pedido principal: ${updatePrincipalError.message}`)
-      }
-
-      // 3) Marcar secundarios como ANUL/cancelado para no duplicar facturación/impresión.
-      const { error: cancelSecError } = await supabase
-        .from('pedidos')
-        .update({ estado: 'cancelado', estado_pedido: 'ANUL', total: 0, updated_at: nowIso })
-        .in('id', secundariosIds)
-        .eq('tenant_id', params.tenantId)
-      if (cancelSecError) {
-        throw new Error(`No se pudieron cerrar pedidos secundarios en la consolidación: ${cancelSecError.message}`)
-      }
-
-      pedidoPrincipal = { ...pedidoPrincipal, total: totalConsolidado }
+    if (pedidoPrincipal.estado_pedido !== 'FACT') {
+      throw new Error('El pedido debe estar en estado FACT para cerrar la cuenta.')
     }
 
     const { data: config, error: configError } = await supabase
@@ -218,8 +104,7 @@ export const cerrarCuentaMesaService = {
     let facturaYaExistia = false
     let warning: string | null = null
     let metodoCobroDisponible = true
-    // Debe alinear con la validación de reprint_solicitud (COALESCE(anulada,false)=false):
-    // en tenants con datos históricos puede existir anulada=NULL y sigue siendo factura activa.
+
     let { data: facturaExistente, error: facturaExistenteError } = await supabase
       .from('facturas')
       .select('id, metodo_cobro')
@@ -244,12 +129,13 @@ export const cerrarCuentaMesaService = {
     }
 
     if (facturaExistenteError) {
-      throw new Error(`No se pudo verificar la factura del pedido consolidado #${pedidoPrincipal.numero_pedido}: ${facturaExistenteError.message}`)
+      throw new Error(
+        `No se pudo verificar la factura del pedido #${pedidoPrincipal.numero_pedido}: ${facturaExistenteError.message}`
+      )
     }
 
     facturaYaExistia = Boolean(facturaExistente?.id)
 
-    // Si la factura ya existe pero no tenía método, completar al cerrar cuenta.
     if (
       metodoCobroDisponible &&
       facturaYaExistia &&
@@ -270,9 +156,8 @@ export const cerrarCuentaMesaService = {
     if (!facturaYaExistia) {
       if (!config) {
         warning = await buildMissingFiscalConfigWarning(supabase, params.tenantId)
-        console.error('[cerrarCuentaMesa] tenant sin configuración fiscal', {
+        console.error('[cerrarCuentaParaLlevar] tenant sin configuración fiscal', {
           tenantId: params.tenantId,
-          mesaId: params.mesaId,
           pedidoId: pedidoPrincipal.id,
         })
       } else {
@@ -332,14 +217,15 @@ export const cerrarCuentaMesaService = {
             : facturaPayload
         )
 
-        // Compatibilidad temporal: si la columna aún no existe en BD, insertar sin método.
         if (facturaInsertError?.message?.toLowerCase().includes('metodo_cobro')) {
           metodoCobroDisponible = false
           const fallback = await supabase.from('facturas').insert(facturaPayload)
           facturaInsertError = fallback.error
         }
 
-        if (facturaInsertError) throw new Error(`No se pudo emitir la factura consolidada: ${facturaInsertError.message}`)
+        if (facturaInsertError) {
+          throw new Error(`No se pudo emitir la factura: ${facturaInsertError.message}`)
+        }
 
         const { error: updateConfigError } = await supabase
           .from('tenant_facturacion')
@@ -367,17 +253,6 @@ export const cerrarCuentaMesaService = {
         warning = warning ? `${warning} ${message}` : message
       }
     }
-
-    const { error: liberarError } = await supabase.rpc('liberar_mesa', {
-      p_tenant_id: params.tenantId,
-      p_mesa_id: params.mesaId,
-      p_usuario_id: params.usuarioId ?? null,
-      p_pedido_id: pedidoPrincipal.id,
-    })
-
-    if (liberarError) throw new Error(`Se emitió/encoló impresión, pero no se pudo liberar la mesa: ${liberarError.message}`)
-
-    void broadcastMesasChanged(params.tenantId, 'cerrarCuenta:liberar')
 
     return {
       pedidoId: pedidoPrincipal.id,

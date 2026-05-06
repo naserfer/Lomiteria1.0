@@ -5,6 +5,84 @@ import type { EstadoMesa, Mesa, MesaReserva, MesaUnion, MesaUnionItem, PedidoDiv
 const MESAS_SELECT = 'id, tenant_id, numero, nombre, capacidad, estado, activa, orden, created_at, updated_at'
 
 export const mesasService = {
+  async getOrCreateVirtualTakeawayMesa(tenantId: string): Promise<Mesa> {
+    const supabase = createClient()
+    const virtualName = '__virtual_para_llevar__'
+
+    const { data: existing, error: existingError } = await supabase
+      .from('mesas')
+      .select(MESAS_SELECT)
+      .eq('tenant_id', tenantId)
+      .eq('nombre', virtualName)
+      .eq('activa', true)
+      .maybeSingle()
+
+    if (existingError) {
+      throw new Error(`No se pudo consultar mesa virtual para llevar: ${existingError.message}`)
+    }
+    if (existing) return existing as Mesa
+
+    const { data: maxNumeroRow, error: maxNumeroError } = await supabase
+      .from('mesas')
+      .select('numero')
+      .eq('tenant_id', tenantId)
+      .order('numero', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (maxNumeroError) {
+      throw new Error(`No se pudo calcular número de mesa virtual: ${maxNumeroError.message}`)
+    }
+
+    const nextNumero = Math.max(1, Number(maxNumeroRow?.numero ?? 0) + 1)
+    const { data: inserted, error: insertError } = await supabase
+      .from('mesas')
+      .insert({
+        tenant_id: tenantId,
+        numero: nextNumero,
+        nombre: virtualName,
+        capacidad: 1,
+        estado: 'ocupada',
+        activa: true,
+        orden: nextNumero,
+      })
+      .select(MESAS_SELECT)
+      .single()
+
+    if (insertError || !inserted) {
+      throw new Error(`No se pudo crear mesa virtual para llevar: ${insertError?.message ?? 'sin datos'}`)
+    }
+
+    return inserted as Mesa
+  },
+
+  async deleteVirtualTakeawayMesa(params: { tenantId: string; mesaId: string }): Promise<void> {
+    const supabase = createClient()
+    const virtualName = '__virtual_para_llevar__'
+    // Para poder eliminar la mesa virtual, desvinculamos historial ya cerrado.
+    const { error: unlinkError } = await supabase
+      .from('pedidos')
+      .update({ mesa_id: null, updated_at: new Date().toISOString() })
+      .eq('tenant_id', params.tenantId)
+      .eq('mesa_id', params.mesaId)
+      .in('estado_pedido', ['FACT', 'ANUL'])
+
+    if (unlinkError) {
+      throw new Error(`No se pudo desvincular pedidos de la mesa virtual: ${unlinkError.message}`)
+    }
+
+    const { error } = await supabase
+      .from('mesas')
+      .delete()
+      .eq('tenant_id', params.tenantId)
+      .eq('id', params.mesaId)
+      .eq('nombre', virtualName)
+
+    if (error) {
+      throw new Error(`No se pudo eliminar mesa virtual para llevar: ${error.message}`)
+    }
+  },
+
   async updateItemCustomizacionExtraPrecio(params: {
     tenantId: string
     customizacionId: string
@@ -896,6 +974,141 @@ export const mesasService = {
     }
 
     return Array.from(byMesa.values())
+  },
+
+  /**
+   * Resumen editable tipo “mesa” para un pedido sin mesa (p. ej. para llevar).
+   * Solo pedidos con `mesa_id` nulo del tenant.
+   */
+  async getResumenPedidoById(params: { tenantId: string; pedidoId: string }): Promise<ResumenMesa | null> {
+    const supabase = createClient()
+    const { data: p, error } = await supabase
+      .from('pedidos')
+      .select(`
+        id,
+        numero_pedido,
+        estado_pedido,
+        total,
+        mesa_id,
+        created_at,
+        items_pedido (
+          id,
+          producto_id,
+          producto_nombre,
+          cantidad,
+          precio_unitario,
+          subtotal,
+          notas,
+          items_pedido_customizacion (
+            id,
+            tipo,
+            precio_extra,
+            motivo,
+            ingredientes:ingrediente_id (
+              nombre
+            )
+          )
+        )
+      `)
+      .eq('tenant_id', params.tenantId)
+      .eq('id', params.pedidoId)
+      .maybeSingle()
+
+    if (error) throw error
+    if (!p) return null
+    if (p.mesa_id != null) return null
+
+    const items = ((p.items_pedido ?? []) as Array<{
+      id: string
+      producto_id: string | null
+      producto_nombre: string
+      cantidad: number
+      precio_unitario: number
+      subtotal: number
+      notas: string | null
+      items_pedido_customizacion?: Array<{
+        id: string
+        tipo: 'extra' | 'removido' | 'modificado'
+        precio_extra: number | null
+        motivo: string | null
+        ingredientes: { nombre: string | null } | Array<{ nombre: string | null }> | null
+      }>
+    }>)
+
+    const pedidoResumen = {
+      id: p.id,
+      numero_pedido: p.numero_pedido,
+      estado_pedido: p.estado_pedido as 'EDIT' | 'FACT',
+      total: p.total,
+      created_at: p.created_at,
+      items: items.map((item) => ({
+        ...item,
+        is_fuera_carta: item.producto_id == null,
+        customizaciones: (item.items_pedido_customizacion ?? []).map((c) => ({
+          id: c.id,
+          tipo: c.tipo,
+          precio_extra: Number(c.precio_extra ?? 0),
+          ingrediente_nombre: Array.isArray(c.ingredientes)
+            ? (c.ingredientes[0]?.nombre ?? null)
+            : (c.ingredientes?.nombre ?? c.motivo ?? null),
+        })),
+      })),
+    }
+
+    const total_items = items.reduce((s, i) => s + i.cantidad, 0)
+    const total_acumulado = Number(p.total ?? 0)
+
+    return {
+      mesa_id: 'para_llevar',
+      pedidos: [pedidoResumen],
+      total_items,
+      total_acumulado,
+    }
+  },
+
+  async addProductoManualAPedido(params: {
+    tenantId: string
+    pedidoId: string
+    nombre: string
+    precioGs: number
+  }): Promise<void> {
+    const supabase = createClient()
+    const nombre = params.nombre.trim()
+    const precio = Math.max(0, Math.round(Number(params.precioGs) || 0))
+    if (!nombre) throw new Error('Ingresá el nombre del producto.')
+
+    const { data: pedido, error: pedidoError } = await supabase
+      .from('pedidos')
+      .select('id, total, mesa_id, estado, estado_pedido')
+      .eq('tenant_id', params.tenantId)
+      .eq('id', params.pedidoId)
+      .maybeSingle()
+
+    if (pedidoError) throw new Error(`No se pudo obtener el pedido: ${pedidoError.message}`)
+    if (!pedido) throw new Error('El pedido no existe.')
+    if (pedido.mesa_id != null) throw new Error('Este pedido está vinculado a una mesa.')
+    if (pedido.estado === 'cancelado') throw new Error('El pedido está cancelado.')
+
+    const { error: insertItemError } = await supabase.from('items_pedido').insert({
+      pedido_id: pedido.id,
+      producto_id: null,
+      producto_nombre: nombre,
+      cantidad: 1,
+      precio_unitario: precio,
+      subtotal: precio,
+      notas: null,
+    })
+
+    if (insertItemError) throw new Error(`No se pudo agregar el producto: ${insertItemError.message}`)
+
+    const totalActual = Number(pedido.total ?? 0)
+    const { error: updatePedidoError } = await supabase
+      .from('pedidos')
+      .update({ total: totalActual + precio, updated_at: new Date().toISOString() })
+      .eq('id', pedido.id)
+      .eq('tenant_id', params.tenantId)
+
+    if (updatePedidoError) throw new Error(`No se pudo actualizar el total del pedido: ${updatePedidoError.message}`)
   },
 
   async addProductoManualEnMesa(params: {

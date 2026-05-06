@@ -3,7 +3,7 @@
 import { useCartStore, type CartItem } from '@/store/cartStore'
 import { Trash2, Plus, Minus, ShoppingBag, Settings2, Star, Zap, Gift, Droplets } from 'lucide-react'
 import { formatGuaranies } from '@/lib/utils/format'
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { useTenant } from '@/contexts/TenantContext'
 import { normalizePuntosRetornoPct } from '@/features/pos/utils/pos.utils'
 import { SaucesDrawer } from './SaucesDrawer'
@@ -50,6 +50,8 @@ interface Props {
   onEditItem?: (itemId: string) => void
   isMesaOrder?: boolean
   allowManualItem?: boolean
+  /** Oculta "Comer aquí" y fuerza tipo distinto de `local` (flujo sin mesa con tenant que usa mesas). */
+  hideComerAquiOption?: boolean
 }
 
 const parseManualPriceInput = (value: string): number => {
@@ -90,6 +92,7 @@ export default function Cart({
   onEditItem,
   isMesaOrder = false,
   allowManualItem = false,
+  hideComerAquiOption = false,
 }: Props) {
   const { tenant, hasDelivery } = useTenant()
   const { items, cliente, tipo, removeItem, updateQuantity, getTotal, getTotalPuntos, setTipo, upsertSauceItem, addManualItem } = useCartStore()
@@ -110,9 +113,20 @@ export default function Cart({
   const puntos = getTotalPuntos(retornoPct)
   const sauceItems = useMemo(() => items.filter((i) => i.grupo === 'salsa'), [items])
   const availableOrderTypes = useMemo(
-    () => ORDER_TYPES.filter(o => o.value !== 'delivery' || (hasDelivery && !isMesaOrder)),
-    [hasDelivery, isMesaOrder]
+    () =>
+      ORDER_TYPES.filter((o) => {
+        if (o.value === 'delivery' && (!hasDelivery || isMesaOrder)) return false
+        if (hideComerAquiOption && o.value === 'local') return false
+        return true
+      }),
+    [hasDelivery, isMesaOrder, hideComerAquiOption]
   )
+
+  useEffect(() => {
+    if (hideComerAquiOption && tipo === 'local') {
+      setTipo('para_llevar')
+    }
+  }, [hideComerAquiOption, tipo, setTipo])
 
   const saucesInitialQty = useMemo(() => {
     const map: Record<string, number> = {}
@@ -518,37 +532,39 @@ export default function Cart({
             <span className="text-xl font-bold text-orange-600">{formatGuaranies(total)}</span>
           </div>
 
-          {/* Preview de puntos - siempre visible */}
-          <div className={`rounded-xl px-3 py-2 ${darkMode ? 'bg-yellow-500/10 border border-yellow-500/20' : 'bg-yellow-50 border border-yellow-200'}`}>
-            <div className="flex items-center gap-1.5 mb-1.5">
-              <Star size={13} className="text-yellow-500 fill-yellow-500 flex-shrink-0" />
-              <span className={`text-[11px] font-bold ${darkMode ? 'text-yellow-300' : 'text-yellow-700'}`}>
-                Puntos este pedido
-              </span>
-              <span className={`ml-auto text-[11px] font-bold ${darkMode ? 'text-yellow-200' : 'text-yellow-800'}`}>
-                {puntos.total} pts
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1 flex-1">
-                <Zap size={10} className={darkMode ? 'text-blue-400' : 'text-blue-500'} />
-                <span className={`text-[10px] ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                  Auto: <span className={`font-semibold ${darkMode ? 'text-blue-300' : 'text-blue-600'}`}>{puntos.puntosAuto}</span>
+          {/* Preview de puntos (oculto en flujo sin mesa para locales con mesas) */}
+          {!hideComerAquiOption && (
+            <div className={`rounded-xl px-3 py-2 ${darkMode ? 'bg-yellow-500/10 border border-yellow-500/20' : 'bg-yellow-50 border border-yellow-200'}`}>
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <Star size={13} className="text-yellow-500 fill-yellow-500 flex-shrink-0" />
+                <span className={`text-[11px] font-bold ${darkMode ? 'text-yellow-300' : 'text-yellow-700'}`}>
+                  Puntos este pedido
+                </span>
+                <span className={`ml-auto text-[11px] font-bold ${darkMode ? 'text-yellow-200' : 'text-yellow-800'}`}>
+                  {puntos.total} pts
                 </span>
               </div>
-              {puntos.puntosExtra > 0 && (
+              <div className="flex items-center gap-2">
                 <div className="flex items-center gap-1 flex-1">
-                  <Gift size={10} className={darkMode ? 'text-purple-400' : 'text-purple-500'} />
+                  <Zap size={10} className={darkMode ? 'text-blue-400' : 'text-blue-500'} />
                   <span className={`text-[10px] ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                    Bonus: <span className={`font-semibold ${darkMode ? 'text-purple-300' : 'text-purple-600'}`}>+{puntos.puntosExtra}</span>
+                    Auto: <span className={`font-semibold ${darkMode ? 'text-blue-300' : 'text-blue-600'}`}>{puntos.puntosAuto}</span>
                   </span>
                 </div>
-              )}
-              <span className={`text-[10px] font-medium ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                ≈ {formatGuaranies(puntos.valorGs)}
-              </span>
+                {puntos.puntosExtra > 0 && (
+                  <div className="flex items-center gap-1 flex-1">
+                    <Gift size={10} className={darkMode ? 'text-purple-400' : 'text-purple-500'} />
+                    <span className={`text-[10px] ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                      Bonus: <span className={`font-semibold ${darkMode ? 'text-purple-300' : 'text-purple-600'}`}>+{puntos.puntosExtra}</span>
+                    </span>
+                  </div>
+                )}
+                <span className={`text-[10px] font-medium ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                  ≈ {formatGuaranies(puntos.valorGs)}
+                </span>
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Tipo de pedido - compacto */}
           <div className="space-y-1">

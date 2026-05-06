@@ -45,6 +45,11 @@ const ESTADO_LABEL: Record<EstadoMesa, string> = {
   bloqueada: 'Bloqueada',
 }
 
+const isVirtualTakeawayMesa = (mesa: Mesa | null | undefined) => {
+  const name = (mesa?.nombre ?? '').toLowerCase()
+  return name === '__virtual_para_llevar__' || name.includes('virtual_para_llevar')
+}
+
 // ─── Componente ───────────────────────────────────────────────────────────────
 
 interface MesaPickerScreenProps {
@@ -374,10 +379,22 @@ export function MesaPickerScreen({ tenantId, onSinMesa }: MesaPickerScreenProps)
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
               {mesas.map(mesa => {
+                const isVirtualTakeaway = isVirtualTakeawayMesa(mesa)
                 const isNavigating = navigatingTo === mesa.id
                 const resumenMesa = resumenByMesa[mesa.id]
                 const reservasMesa = reservasActivasPorMesa.get(mesa.id) ?? []
                 const canTakeOrder = mesa.estado !== 'bloqueada'
+                const cardBorder = isVirtualTakeaway
+                  ? (darkMode ? 'border-amber-500' : 'border-amber-400')
+                  : ESTADO_BORDER[mesa.estado]
+                const cardBg = isVirtualTakeaway
+                  ? (darkMode ? 'bg-amber-950/20' : 'bg-amber-50/90')
+                  : ESTADO_CARD_BG[mesa.estado]
+                const estadoBadge = isVirtualTakeaway
+                  ? 'bg-amber-500 text-white border-amber-500 dark:bg-amber-500 dark:border-amber-500'
+                  : ESTADO_BADGE[mesa.estado]
+                const headerEyebrow = isVirtualTakeaway ? 'Para llevar' : 'Mesa'
+                const headerTitle = isVirtualTakeaway ? 'Para llevar' : `#${mesa.numero}`
 
                 return (
                   <article
@@ -391,7 +408,7 @@ export function MesaPickerScreen({ tenantId, onSinMesa }: MesaPickerScreenProps)
                         setSelectedMesaId(mesa.id)
                       }
                     }}
-                    className={`relative rounded-3xl border-[3px] p-4 shadow-sm flex flex-col gap-3 transition-colors cursor-pointer ${ESTADO_BORDER[mesa.estado]} ${ESTADO_CARD_BG[mesa.estado]} ${isBusy ? 'opacity-70 pointer-events-none' : ''}`}
+                    className={`relative rounded-3xl border-[3px] p-4 shadow-sm flex flex-col gap-3 transition-colors cursor-pointer ${cardBorder} ${cardBg} ${isBusy ? 'opacity-70 pointer-events-none' : ''}`}
                   >
                     {isNavigating && (
                       <div className="absolute inset-0 flex items-center justify-center rounded-2xl bg-white/70 dark:bg-gray-900/70 backdrop-blur-[2px] z-10">
@@ -401,10 +418,10 @@ export function MesaPickerScreen({ tenantId, onSinMesa }: MesaPickerScreenProps)
 
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="text-[10px] uppercase tracking-widest text-gray-400 dark:text-gray-500">Mesa</p>
-                        <h3 className="text-3xl font-black leading-none mt-0.5">#{mesa.numero}</h3>
+                        <p className="text-[10px] uppercase tracking-widest text-gray-400 dark:text-gray-500">{headerEyebrow}</p>
+                        <h3 className="text-3xl font-black leading-none mt-0.5">{headerTitle}</h3>
                       </div>
-                      <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${ESTADO_BADGE[mesa.estado]}`}>
+                      <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${estadoBadge}`}>
                         {ESTADO_LABEL[mesa.estado]}
                       </span>
                     </div>

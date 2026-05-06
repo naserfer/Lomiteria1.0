@@ -21,7 +21,7 @@ import { useRealtimeMesaDetalle } from '../hooks/useRealtimeMesaDetalle'
 
 type MetodoCobro = 'tarjeta' | 'efectivo'
 
-interface DetalleMesaModalProps {
+export interface DetalleMesaModalProps {
   /** Tenant actual; necesario para suscribir el listener realtime de la mesa. */
   tenantId?: string | null
   mesa: Mesa | null
@@ -35,7 +35,8 @@ interface DetalleMesaModalProps {
   confirmDividir?: boolean
   feedback: { type: 'success' | 'error'; message: string } | null
   onClose: () => void
-  onTomarPedido: (mesaId: string) => void
+  /** En modo mesa normal; omitir en `takeawayAccountMode` (no se muestra el botón). */
+  onTomarPedido?: (mesaId: string) => void
   onCerrarCuenta?: (mesa: Mesa, metodo?: MetodoCobro) => Promise<void>
   onSetEstado?: (mesaId: string, estado: EstadoMesa) => Promise<void>
   onAdjustSplit?: (mesaId: string, delta: number) => void
@@ -55,6 +56,12 @@ interface DetalleMesaModalProps {
   showOperationalActions?: boolean
   showSplitActions?: boolean
   showCerrarCuenta?: boolean
+  /** Cuenta sin mesa (p. ej. para llevar): muestra resumen aunque no haya fila `mesas`, sin realtime de mesa. */
+  takeawayAccountMode?: boolean
+  /** Encabezado cuando `takeawayAccountMode` (ej. "Para llevar"). */
+  accountHeaderEyebrow?: string
+  /** Título principal cuando `takeawayAccountMode` (ej. "Pedido #12"). */
+  accountHeaderTitle?: string
 }
 
 const ESTADO_LABEL: Record<EstadoMesa, string> = {
@@ -132,7 +139,12 @@ export function DetalleMesaModal({
   showOperationalActions = true,
   showSplitActions = true,
   showCerrarCuenta = true,
+  takeawayAccountMode = false,
+  accountHeaderEyebrow = 'Para llevar',
+  accountHeaderTitle = 'Pedido',
 }: DetalleMesaModalProps) {
+  const lockTakeawayClose =
+    takeawayAccountMode && showCerrarCuenta && Boolean(onCerrarCuenta)
   const [mounted, setMounted] = useState(false)
   const [showCloseOptions, setShowCloseOptions] = useState(false)
   const [editingExtraId, setEditingExtraId] = useState<string | null>(null)
@@ -168,7 +180,7 @@ export function DetalleMesaModal({
   }, [realtimeNotice])
 
   // Listener focalizado en esta mesa: detecta cuando otro usuario cambia su estado.
-  useRealtimeMesaDetalle(tenantId, mesa, {
+  useRealtimeMesaDetalle(takeawayAccountMode ? null : tenantId, takeawayAccountMode ? null : mesa, {
     onMesaLiberadaRemoto: (nuevoEstado) => {
       const label = ESTADO_LABEL[nuevoEstado] ?? nuevoEstado
       setRealtimeNotice(`Otro usuario actualizó esta mesa al estado "${label}". Cerrá el detalle cuando quieras.`)
@@ -177,11 +189,11 @@ export function DetalleMesaModal({
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
+      if (event.key === 'Escape' && !lockTakeawayClose) onClose()
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [onClose])
+  }, [onClose, lockTakeawayClose])
 
   useEffect(() => {
     if (!editingItemId && !editingNoteItemId && !editingExtraId) return
@@ -314,8 +326,16 @@ export function DetalleMesaModal({
     )
   }, [mesa, isSaving, onSetEstado])
 
-  const resumenVisible = mesa?.estado === 'ocupada' ? resumenPedido : null
-  const loadingResumenVisible = mesa?.estado === 'ocupada' ? loadingResumen : false
+  const resumenVisible = takeawayAccountMode
+    ? resumenPedido
+    : mesa?.estado === 'ocupada'
+      ? resumenPedido
+      : null
+  const loadingResumenVisible = takeawayAccountMode
+    ? loadingResumen
+    : mesa?.estado === 'ocupada'
+      ? loadingResumen
+      : false
 
   if (!mounted || !mesa) return null
 
@@ -332,19 +352,39 @@ export function DetalleMesaModal({
       aria-modal="true"
       aria-labelledby="detalle-mesa-title"
     >
-      <div className="absolute inset-0 bg-black/45 backdrop-blur-sm" onClick={onClose} aria-hidden="true" />
+      <div
+        className="absolute inset-0 bg-black/45 backdrop-blur-sm"
+        onClick={lockTakeawayClose ? undefined : onClose}
+        aria-hidden="true"
+      />
 
       <div className="relative flex w-full max-w-[min(96vw,960px)] max-h-[min(88vh,780px)] flex-col overflow-hidden self-center rounded-3xl border border-gray-200 bg-white shadow-2xl dark:border-gray-800 dark:bg-gray-900">
         <div className="flex items-start justify-between gap-3 border-b border-gray-100 dark:border-gray-800 px-4 sm:px-5 py-3 sm:py-4">
           <div>
-            <p className="text-[11px] uppercase tracking-widest text-gray-400">Detalle de mesa</p>
-            <h2 id="detalle-mesa-title" className="text-2xl sm:text-4xl font-black mt-0.5 sm:mt-1">Mesa #{mesa.numero}</h2>
+            <p className="text-[11px] uppercase tracking-widest text-gray-400">
+              {takeawayAccountMode ? accountHeaderEyebrow : 'Detalle de mesa'}
+            </p>
+            <h2 id="detalle-mesa-title" className="text-2xl sm:text-4xl font-black mt-0.5 sm:mt-1">
+              {takeawayAccountMode ? accountHeaderTitle : `Mesa #${mesa.numero}`}
+            </h2>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <span className={`inline-flex items-center rounded-full border px-2.5 py-1 sm:px-3 sm:py-1.5 text-xs sm:text-sm font-semibold ${ESTADO_BADGE[mesa.estado]}`}>
-              {ESTADO_LABEL[mesa.estado]}
+            <span
+              className={`inline-flex items-center rounded-full border px-2.5 py-1 sm:px-3 sm:py-1.5 text-xs sm:text-sm font-semibold ${
+                takeawayAccountMode
+                  ? 'bg-orange-100 text-orange-800 border-orange-300 dark:bg-orange-900/30 dark:text-orange-200 dark:border-orange-700/50'
+                  : ESTADO_BADGE[mesa.estado]
+              }`}
+            >
+              {takeawayAccountMode ? 'Para llevar' : ESTADO_LABEL[mesa.estado]}
             </span>
-            <button type="button" onClick={onClose} className="p-2 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 dark:hover:text-gray-200 dark:hover:bg-gray-800 transition" aria-label="Cerrar detalle">
+            <button
+              type="button"
+              onClick={lockTakeawayClose ? undefined : onClose}
+              disabled={lockTakeawayClose}
+              className="p-2 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 dark:hover:text-gray-200 dark:hover:bg-gray-800 transition disabled:opacity-40 disabled:cursor-not-allowed"
+              aria-label="Cerrar detalle"
+            >
               <X className="w-4 h-4" />
             </button>
           </div>
@@ -353,14 +393,35 @@ export function DetalleMesaModal({
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 sm:px-6 py-4 sm:py-5 space-y-4 sm:space-y-5"
           style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom, 1rem))' }}
         >
-          <div className={`grid grid-cols-1 ${showCerrarCuenta ? 'md:grid-cols-3' : 'md:grid-cols-2'} gap-2`}>
-            <button type="button" disabled={mesa.estado === 'bloqueada'} onClick={() => onTomarPedido(mesa.id)} className="rounded-xl bg-gray-900 dark:bg-gray-700 text-white text-sm font-semibold px-3 py-2.5 disabled:opacity-40">
-              Tomar pedido
-            </button>
+          <div
+            className={`grid grid-cols-1 gap-2 ${
+              takeawayAccountMode
+                ? showCerrarCuenta
+                  ? 'md:grid-cols-2'
+                  : 'md:grid-cols-1'
+                : showCerrarCuenta
+                  ? 'md:grid-cols-3'
+                  : 'md:grid-cols-2'
+            }`}
+          >
+            {!takeawayAccountMode && (
+              <button
+                type="button"
+                disabled={mesa.estado === 'bloqueada' || !onTomarPedido}
+                onClick={() => onTomarPedido?.(mesa.id)}
+                className="rounded-xl bg-gray-900 dark:bg-gray-700 text-white text-sm font-semibold px-3 py-2.5 disabled:opacity-40"
+              >
+                Tomar pedido
+              </button>
+            )}
             {showCerrarCuenta && (
               <button
                 type="button"
-                disabled={!onCerrarCuenta || mesa.estado !== 'ocupada' || isClosingMesa}
+                disabled={
+                  !onCerrarCuenta ||
+                  (!takeawayAccountMode && mesa.estado !== 'ocupada') ||
+                  isClosingMesa
+                }
                 onClick={() => setShowCloseOptions(prev => !prev)}
                 className="rounded-xl border border-emerald-300 bg-emerald-100 text-emerald-800 text-sm font-semibold px-3 py-2.5 disabled:opacity-50 inline-flex items-center justify-center gap-1"
               >
@@ -368,12 +429,17 @@ export function DetalleMesaModal({
                 Cerrar cuenta
               </button>
             )}
-            <button type="button" onClick={onClose} className="rounded-xl border border-gray-200 dark:border-gray-700 text-sm font-semibold px-3 py-2.5 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition">
-              Volver al panel
+            <button
+              type="button"
+              onClick={lockTakeawayClose ? undefined : onClose}
+              disabled={lockTakeawayClose}
+              className="rounded-xl border border-gray-200 dark:border-gray-700 text-sm font-semibold px-3 py-2.5 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {lockTakeawayClose ? 'Cerrá la cuenta para continuar' : 'Volver al panel'}
             </button>
           </div>
 
-          {showCerrarCuenta && showCloseOptions && mesa.estado === 'ocupada' && (
+          {showCerrarCuenta && showCloseOptions && (takeawayAccountMode || mesa.estado === 'ocupada') && (
             <div className="grid grid-cols-2 gap-2 rounded-xl border border-emerald-200 bg-emerald-50/70 dark:bg-emerald-900/20 p-2">
               <button
                 type="button"
@@ -424,7 +490,9 @@ export function DetalleMesaModal({
               {loadingResumenVisible && !resumenVisible ? (
                 <p className="text-[11px] text-gray-400">Cargando resumen...</p>
               ) : !resumenVisible ? (
-                <p className="text-[11px] text-gray-400">Sin pedido registrado en esta mesa</p>
+                <p className="text-[11px] text-gray-400">
+                  {takeawayAccountMode ? 'Sin datos de pedido para esta cuenta.' : 'Sin pedido registrado en esta mesa'}
+                </p>
               ) : (
                 <>
                   {resumenVisible.pedidos.map((pedido, pi) => (

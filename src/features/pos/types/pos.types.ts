@@ -43,6 +43,8 @@ export interface FeedbackState {
   title: string
   message: string
   details?: FeedbackDetail[]
+  /** Metadatos opcionales (p. ej. último pedido para flujo para llevar sin mesa). */
+  meta?: { pedidoId?: string }
 }
 
 export type TipoPedido = 'delivery' | 'local' | 'para_llevar' | null

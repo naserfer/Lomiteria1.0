@@ -67,13 +67,17 @@ export function useOrderConfirmation(mesaId?: string | null) {
     return null
   }
 
-  const confirmOrderNoFactura = async (): Promise<FeedbackState | null> => {
+  const confirmOrderNoFactura = async (
+    options?: { forceTipo?: Exclude<NonNullable<typeof tipo>, 'delivery'> }
+  ): Promise<FeedbackState | null> => {
     if (!usuario || !tenant || !tipo) {
       return showInlineError(
         'No encontramos el usuario',
         'Volvé a iniciar sesión para poder registrar ventas.'
       )
     }
+    const tipoPedido = options?.forceTipo ?? tipo
+    const clientePedido = !mesaId && tenant.gestion_mesas ? null : cliente
     setIsProcessing(true)
     try {
       const total = getTotal()
@@ -84,8 +88,8 @@ export function useOrderConfirmation(mesaId?: string | null) {
         usuarioId: usuario.id,
         tenantNombre: tenant.nombre,
         usuarioNombre: usuario.nombre,
-        cliente,
-        tipo,
+        cliente: clientePedido,
+        tipo: tipoPedido,
         items,
         total,
         emitirFactura: false,
@@ -93,6 +97,8 @@ export function useOrderConfirmation(mesaId?: string | null) {
         facturaMostrarNombreYCI: false,
         puntosRetornoPct,
         mesaId: mesaId ?? null,
+        suppressPuntosEnSuccessDetails: Boolean(!mesaId && tenant.gestion_mesas),
+        suppressPuntosGanadosSideEffects: Boolean(!mesaId && tenant.gestion_mesas),
       })
 
       clearCart()
@@ -102,6 +108,7 @@ export function useOrderConfirmation(mesaId?: string | null) {
         title: `Pedido #${pedido.numero_pedido} confirmado`,
         message: 'Venta registrada y stock actualizado.',
         details: successDetails,
+        meta: { pedidoId: pedido.id },
       }
     } catch (error) {
       const err =
@@ -134,6 +141,7 @@ export function useOrderConfirmation(mesaId?: string | null) {
 
     try {
       const total = getTotal()
+      const clientePedido = !mesaId && tenant.gestion_mesas ? null : cliente
 
       const puntosRetornoPct = normalizePuntosRetornoPct(tenant.puntos_retorno_pct)
 
@@ -142,7 +150,7 @@ export function useOrderConfirmation(mesaId?: string | null) {
         usuarioId: usuario.id,
         tenantNombre: tenant.nombre,
         usuarioNombre: usuario.nombre,
-        cliente,
+        cliente: clientePedido,
         tipo,
         items,
         total,
@@ -151,6 +159,8 @@ export function useOrderConfirmation(mesaId?: string | null) {
         facturaMostrarNombreYCI: !facturaALNombreDelCliente && comprobanteNombreYCI,
         puntosRetornoPct,
         mesaId: mesaId ?? null,
+        suppressPuntosEnSuccessDetails: Boolean(!mesaId && tenant.gestion_mesas),
+        suppressPuntosGanadosSideEffects: Boolean(!mesaId && tenant.gestion_mesas),
       })
 
       setFacturaPrefModalOpen(false)
@@ -161,6 +171,7 @@ export function useOrderConfirmation(mesaId?: string | null) {
         title: `Pedido #${pedido.numero_pedido} confirmado`,
         message: 'Venta registrada y stock actualizado.',
         details: successDetails,
+        meta: { pedidoId: pedido.id },
       }
     } catch (error) {
       const err =

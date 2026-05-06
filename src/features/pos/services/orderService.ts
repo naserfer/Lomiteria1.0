@@ -53,6 +53,13 @@ interface ConfirmOrderParams {
   puntosRetornoPct: PuntosRetornoPct
   /** Si viene, el pedido se vincula a una mesa del salón. */
   mesaId?: string | null
+  /** No agregar líneas de puntos (UI) en el feedback de éxito (evita “resumen de puntos” en pantalla). */
+  suppressPuntosEnSuccessDetails?: boolean
+  /**
+   * Evita acreditar puntos ganados y deja `puntos_generados=0` en pedidos.
+   * Se usa para cortar flujos externos que imprimen resúmenes de puntos.
+   */
+  suppressPuntosGanadosSideEffects?: boolean
 }
 
 export const orderService = {
@@ -72,6 +79,8 @@ export const orderService = {
       facturaMostrarNombreYCI = false,
       puntosRetornoPct,
       mesaId = null,
+      suppressPuntosEnSuccessDetails = false,
+      suppressPuntosGanadosSideEffects = false,
     } = params
     let mesaNumero: number | null = null
 
@@ -121,6 +130,7 @@ export const orderService = {
       0
     )
     const puntosGenerados = puntosAuto + puntosBonus
+    const puntosGeneradosPersistidos = suppressPuntosGanadosSideEffects ? 0 : puntosGenerados
 
     const canjeItems = items.filter((i) => i.modo === 'canje' && i.tipo === 'producto')
     const puntosCosteCanje = canjeItems.reduce((sum, item) => sum + ((item.puntos_canje ?? 0) * item.cantidad), 0)
@@ -148,7 +158,7 @@ export const orderService = {
         mesa_id: mesaId,
         tipo,
         total,
-        puntos_generados: cliente ? puntosGenerados : 0,
+        puntos_generados: cliente ? puntosGeneradosPersistidos : 0,
         // Crear primero en EDIT para completar items/customizaciones antes
         // de disparar la impresión automática (FACT).
         estado_pedido: 'EDIT'
@@ -210,7 +220,7 @@ export const orderService = {
     }
 
     // Acreditar puntos generados por la venta (solo sobre productos de venta)
-    if (cliente && puntosGenerados > 0) {
+    if (!suppressPuntosGanadosSideEffects && cliente && puntosGenerados > 0) {
       await registrarPuntosGanados(
         tenantId,
         cliente.id,
@@ -384,17 +394,22 @@ export const orderService = {
       successDetails.push({ label: 'Cliente', value: cliente.nombre })
     }
 
-    if (canjeItems.length > 0 && cliente) {
-      const nombreCanjeado = canjeItems[0]?.nombre ?? '—'
-      successDetails.push({
-        label: 'Puntos canjeados',
-        value: `${puntosSaldoConsumidos} pts`
-      })
-      successDetails.push({ label: 'Producto canjeado', value: nombreCanjeado })
-    }
+    if (!suppressPuntosEnSuccessDetails) {
+      if (canjeItems.length > 0 && cliente) {
+        const nombreCanjeado = canjeItems[0]?.nombre ?? '—'
+        successDetails.push({
+          label: 'Puntos canjeados',
+          value: `${puntosSaldoConsumidos} pts`
+        })
+        successDetails.push({ label: 'Producto canjeado', value: nombreCanjeado })
+      }
 
-    if (cliente && puntosGenerados > 0) {
-      successDetails.push({ label: 'Puntos sumados', value: `${puntosGenerados} ⭐` })
+      if (cliente && puntosGenerados > 0) {
+        successDetails.push({ label: 'Puntos sumados', value: `${puntosGenerados} ⭐` })
+      }
+    } else if (canjeItems.length > 0 && cliente) {
+      const nombreCanjeado = canjeItems[0]?.nombre ?? '—'
+      successDetails.push({ label: 'Producto canjeado', value: nombreCanjeado })
     }
 
     if (canjeItems.length > 0) {

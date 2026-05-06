@@ -35,8 +35,10 @@ import CanjePuntosModal from '../components/CanjePuntosModal'
 import { ReprintPOSModal } from '../components/ReprintPOSModal'
 import { AppFooter } from '@/components/layout/AppFooter'
 import { cerrarCuentaMesaService } from '@/features/mesas/services/cerrarCuentaMesaService'
+import { cerrarCuentaParaLlevarService } from '@/features/mesas/services/cerrarCuentaParaLlevarService'
 import { mesasService } from '@/features/mesas/services/mesasService'
 import { DetalleMesaModal } from '@/features/mesas/components/DetalleMesaModal'
+import { CuentaEditableModal } from '@/features/mesas/components/CuentaEditableModal'
 import type { Mesa, ResumenMesa } from '@/features/mesas/types/mesas.types'
 import { tenantHasOrientalCustomPOSFeatures } from '@/utils/constants'
 import { mesaPedidoCocinaToastClassName } from '../components/mesaPedidoCocinaToastStyles'
@@ -50,6 +52,22 @@ import {
 const MESA_PEDIDO_NAVIGATE_MS = 1500
 /** Duración total del mensaje «Pedido enviado…» (sigue visible unos segundos tras el salto). */
 const MESA_PEDIDO_TOAST_MS = 2500
+
+const LS_ULTIMO_PEDIDO_PARA_LLEVAR = 'lomiteria_pos_ultimoPedidoParaLlevar'
+
+/** Placeholder de mesa solo para reutilizar `DetalleMesaModal` en cuenta para llevar sin mesa física. */
+const MESA_VIRTUAL_PARA_LLEVAR_UI: Mesa = {
+  id: '00000000-0000-4000-8000-000000000001',
+  tenant_id: '',
+  numero: 0,
+  nombre: 'Para llevar',
+  capacidad: 0,
+  estado: 'ocupada',
+  activa: true,
+  orden: 0,
+  created_at: '',
+  updated_at: '',
+}
 
 export default function POSView() {
   const router = useRouter()
@@ -75,6 +93,18 @@ export default function POSView() {
   const [updatingItemRecargoId, setUpdatingItemRecargoId] = useState<string | null>(null)
   const [addingManualItemInDetalle, setAddingManualItemInDetalle] = useState(false)
   const [detalleMesaFeedback, setDetalleMesaFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  const [paraLlevarCuentaOpen, setParaLlevarCuentaOpen] = useState(false)
+  const [paraLlevarPedidoId, setParaLlevarPedidoId] = useState<string | null>(null)
+  const [resumenParaLlevar, setResumenParaLlevar] = useState<ResumenMesa | null>(null)
+  const [loadingResumenParaLlevar, setLoadingResumenParaLlevar] = useState(false)
+  const [paraLlevarDetalleFeedback, setParaLlevarDetalleFeedback] = useState<{
+    type: 'success' | 'error'
+    message: string
+  } | null>(null)
+  const [updatingParaLlevarExtraId, setUpdatingParaLlevarExtraId] = useState<string | null>(null)
+  const [updatingParaLlevarItemId, setUpdatingParaLlevarItemId] = useState<string | null>(null)
+  const [addingManualParaLlevar, setAddingManualParaLlevar] = useState(false)
+  const [isClosingParaLlevarCuenta, setIsClosingParaLlevarCuenta] = useState(false)
   const [mesaToast, setMesaToast] = useState<string | null>(null)
   const mesaPedidoNavigateTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -92,6 +122,17 @@ export default function POSView() {
     (isAdmin || isCajero) &&
     !mesaId &&
     mesaPhaseParam === ROUTES.POS_MESA_PHASE.SIN_MESA
+
+  const isSinMesaParaLlevarPos =
+    hasMesas && !mesaId && mesaPhaseParam === ROUTES.POS_MESA_PHASE.SIN_MESA
+
+  const mesaVirtualParaLlevarUi = useMemo(
+    () => ({
+      ...MESA_VIRTUAL_PARA_LLEVAR_UI,
+      tenant_id: tenant?.id ?? '',
+    }),
+    [tenant?.id],
+  )
 
   // Destino de regreso al salir del POS con mesa:
   // - desde MesasView (admin)  → vuelve a /home/mesas
@@ -126,6 +167,8 @@ export default function POSView() {
   // Admin y cajero de Oriental: UI simplificada en contexto de mesa (solo "Ver detalles")
   const showVerDetallesMesa =
     (isAdmin || isCajero) && tenantHasOrientalCustomPOSFeatures(tenant?.id)
+  const effectiveMesaId =
+    mesaId ?? (isSinMesaParaLlevarPos ? (mesaObj?.id ?? null) : null)
   const {
     prepareConfirmOrder,
     confirmOrderWithFacturaChoice,
@@ -133,7 +176,7 @@ export default function POSView() {
     cancelFacturaModal,
     facturaPrefModalOpen,
     isProcessing,
-  } = useOrderConfirmation(mesaId)
+  } = useOrderConfirmation(effectiveMesaId)
   const initialCategorySet = useRef(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const searchSentinelRef = useRef<HTMLDivElement>(null)
@@ -148,16 +191,37 @@ export default function POSView() {
   }, [tenant?.slug])
 
   useEffect(() => {
-    if (!mesaId || !tenant?.id) {
+    if (!tenant?.id) {
       setMesaLabel(null)
       setMesaObj(null)
       return
     }
 
-    if (!tipo || tipo === 'delivery') setTipo('local')
+    if (mesaId && (!tipo || tipo === 'delivery')) setTipo('local')
 
     let mounted = true
     const loadMesa = async () => {
+      if (isSinMesaParaLlevarPos) {
+        try {
+          const virtualMesa = await mesasService.getOrCreateVirtualTakeawayMesa(tenant.id)
+          if (!mounted) return
+          setMesaObj(virtualMesa)
+          setMesaLabel('Para llevar')
+        } catch {
+          if (!mounted) return
+          setMesaObj(null)
+          setMesaLabel('Para llevar')
+        }
+        return
+      }
+
+      if (!mesaId) {
+        if (!mounted) return
+        setMesaLabel(null)
+        setMesaObj(null)
+        return
+      }
+
       const supabase = createClient()
       const { data } = await supabase
         .from('mesas')
@@ -179,7 +243,7 @@ export default function POSView() {
     return () => {
       mounted = false
     }
-  }, [mesaId, tenant?.id, setTipo, tipo])
+  }, [mesaId, tenant?.id, setTipo, tipo, isSinMesaParaLlevarPos])
   const cartaQrImageUrl = useMemo(() => {
     if (!cartaQrUrl) return ''
     return `https://api.qrserver.com/v1/create-qr-code/?size=360x360&margin=10&data=${encodeURIComponent(cartaQrUrl)}`
@@ -319,20 +383,25 @@ export default function POSView() {
       return
     }
     if (facturaPrefModalOpen) return
+
     const result = prepareConfirmOrder()
     if (result) {
       setFeedback(result)
       return
     }
 
-    if (mesaId) {
+    if (effectiveMesaId) {
       // Con mesa: enviar a cocina sin emitir factura (la factura se emite al cerrar la cuenta)
       const direct = await confirmOrderNoFactura()
       if (direct) {
         if (direct.type === 'success') {
-          setMesaPedidoCocinaToastSession(MESA_PEDIDO_COCINA_TOAST_MESSAGE, MESA_PEDIDO_TOAST_MS)
-          setMesaToast(MESA_PEDIDO_COCINA_TOAST_MESSAGE)
-          scheduleNavigateAfterMesaPedidoSuccess()
+          if (isSinMesaParaLlevarPos) {
+            await handleAbrirDetalleMesa()
+          } else {
+            setMesaPedidoCocinaToastSession(MESA_PEDIDO_COCINA_TOAST_MESSAGE, MESA_PEDIDO_TOAST_MS)
+            setMesaToast(MESA_PEDIDO_COCINA_TOAST_MESSAGE)
+            scheduleNavigateAfterMesaPedidoSuccess()
+          }
         } else {
           setFeedback(direct)
         }
@@ -341,6 +410,7 @@ export default function POSView() {
       // Sin mesa y modal desactivado: emitir factura directo para que el agente Realtime imprima
       const direct = await confirmOrderWithFacturaChoice(false, false)
       if (direct) {
+        trackPedidoIdParaLlevar(direct)
         if (direct.type === 'success' && shouldReturnToPickerAfterSinMesaVenta) {
           setMesaPedidoCocinaToastSession(
             POS_VENTA_VOLVER_PICKER_TOAST_MESSAGE,
@@ -361,6 +431,7 @@ export default function POSView() {
   const onFacturaModalConfirm = async (facturaALNombreDelCliente: boolean, comprobanteNombreYCI: boolean) => {
     const result = await confirmOrderWithFacturaChoice(facturaALNombreDelCliente, comprobanteNombreYCI)
     if (result) {
+      trackPedidoIdParaLlevar(result)
       if (mesaId && result.type === 'success') {
         setMesaPedidoCocinaToastSession(MESA_PEDIDO_COCINA_TOAST_MESSAGE, MESA_PEDIDO_TOAST_MS)
         setMesaToast(MESA_PEDIDO_COCINA_TOAST_MESSAGE)
@@ -379,14 +450,14 @@ export default function POSView() {
   }
 
   const handleCerrarCuentaMesa = async (metodo?: 'tarjeta' | 'efectivo') => {
-    if (!tenant?.id || !mesaId) return
+    if (!tenant?.id || !effectiveMesaId) return
     if (isClosingMesaAccount) return
 
     setIsClosingMesaAccount(true)
     try {
       const result = await cerrarCuentaMesaService.cerrarCuenta({
         tenantId: tenant.id,
-        mesaId,
+        mesaId: effectiveMesaId,
         usuarioId: usuario?.id ?? null,
         metodoCobro: metodo ?? null,
       })
@@ -394,21 +465,33 @@ export default function POSView() {
       clearCart()
       setFeedback({
         type: 'success',
-        title: `Mesa cerrada · Pedido #${result.numeroPedido}`,
+        title: `${isSinMesaParaLlevarPos ? 'Cuenta para llevar cerrada' : 'Mesa cerrada'} · Pedido #${result.numeroPedido}`,
         message: result.warning
           ? `Cuenta cerrada y mesa liberada. ${result.warning}`
           : result.facturaEmitidaAhora
             ? 'Cuenta cerrada, factura emitida y mesa liberada.'
             : 'Cuenta cerrada, factura reimpresa y mesa liberada.',
         details: [
-          { label: 'Mesa', value: mesaLabel ?? 'Mesa seleccionada' },
+          {
+            label: isSinMesaParaLlevarPos ? 'Tipo' : 'Mesa',
+            value: isSinMesaParaLlevarPos ? 'Para llevar' : (mesaLabel ?? 'Mesa seleccionada'),
+          },
           { label: 'Cobro', value: metodo ?? 'sin método' },
-          { label: 'Impresión', value: result.warning ? 'Pendiente o parcial' : 'Factura + ticket de puntos (agente)' },
+          { label: 'Impresión', value: result.warning ? 'Pendiente o parcial' : 'Factura (agente)' },
         ],
       })
+      if (isSinMesaParaLlevarPos && mesaObj?.id) {
+        try {
+          await mesasService.deleteVirtualTakeawayMesa({ tenantId: tenant.id, mesaId: mesaObj.id })
+        } catch {
+          // no bloquear el cierre por falla de limpieza
+        }
+        setMesaObj(null)
+        setMesaLabel('Para llevar')
+      }
       // Solo redirigir automático cuando todo salió bien; si hay warning/error,
       // dejamos al usuario leer el mensaje con calma.
-      if (!result.warning) {
+      if (!result.warning && !isSinMesaParaLlevarPos) {
         setTimeout(() => {
           window.location.href = backRoute
         }, 900)
@@ -512,6 +595,180 @@ export default function POSView() {
   const onCerrarCuentaFromModal = async (_mesa: Mesa, metodo?: 'tarjeta' | 'efectivo') => {
     setDetalleMesaOpen(false)
     await handleCerrarCuentaMesa(metodo)
+  }
+
+  const persistParaLlevarPedidoId = useCallback((id: string) => {
+    setParaLlevarPedidoId(id)
+    try {
+      sessionStorage.setItem(LS_ULTIMO_PEDIDO_PARA_LLEVAR, id)
+    } catch {
+      /* ignore */
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!isSinMesaParaLlevarPos) return
+    try {
+      const v = sessionStorage.getItem(LS_ULTIMO_PEDIDO_PARA_LLEVAR)
+      if (v) setParaLlevarPedidoId(v)
+    } catch {
+      /* ignore */
+    }
+  }, [isSinMesaParaLlevarPos])
+
+  const trackPedidoIdParaLlevar = useCallback(
+    (result: FeedbackState | null) => {
+      if (result?.type === 'success' && result.meta?.pedidoId && isSinMesaParaLlevarPos) {
+        persistParaLlevarPedidoId(result.meta.pedidoId)
+      }
+    },
+    [isSinMesaParaLlevarPos, persistParaLlevarPedidoId]
+  )
+
+  const reloadResumenParaLlevar = async (tenantId: string, pedidoId: string) => {
+    const r = await mesasService.getResumenPedidoById({ tenantId, pedidoId })
+    setResumenParaLlevar(r)
+  }
+
+  const handleAbrirParaLlevarCuenta = async () => {
+    if (!tenant?.id || !paraLlevarPedidoId) return
+    setParaLlevarCuentaOpen(true)
+    setParaLlevarDetalleFeedback(null)
+    setLoadingResumenParaLlevar(true)
+    try {
+      await reloadResumenParaLlevar(tenant.id, paraLlevarPedidoId)
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'No se pudo cargar el resumen.'
+      setParaLlevarDetalleFeedback({ type: 'error', message: msg })
+    } finally {
+      setLoadingResumenParaLlevar(false)
+    }
+  }
+
+  const handleUpdateExtraPrecioParaLlevar = async (customizacionId: string, precioExtraGs: number) => {
+    if (!tenant?.id || !paraLlevarPedidoId) return
+    setUpdatingParaLlevarExtraId(customizacionId)
+    try {
+      await mesasService.updateItemCustomizacionExtraPrecio({
+        tenantId: tenant.id,
+        customizacionId,
+        precioExtraGs,
+      })
+      setParaLlevarDetalleFeedback({
+        type: 'success',
+        message: `Extra actualizado a Gs. ${precioExtraGs.toLocaleString('es-PY')}.`,
+      })
+      await reloadResumenParaLlevar(tenant.id, paraLlevarPedidoId)
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'No se pudo actualizar el precio del extra.'
+      setParaLlevarDetalleFeedback({ type: 'error', message: msg })
+    } finally {
+      setUpdatingParaLlevarExtraId(null)
+    }
+  }
+
+  const handleUpdateItemRecargoParaLlevar = async (
+    itemPedidoId: string,
+    extraGs: number,
+    options?: { mode?: 'line_total' | 'note_extra' }
+  ) => {
+    if (!tenant?.id || !paraLlevarPedidoId) return
+    setUpdatingParaLlevarItemId(itemPedidoId)
+    try {
+      await mesasService.updateItemPedidoRecargo({
+        tenantId: tenant.id,
+        itemPedidoId,
+        extraGs,
+        mode: options?.mode,
+      })
+      setParaLlevarDetalleFeedback({
+        type: 'success',
+        message:
+          options?.mode === 'note_extra'
+            ? `Extra de nota actualizado a Gs. ${extraGs.toLocaleString('es-PY')}.`
+            : `Precio actualizado a Gs. ${extraGs.toLocaleString('es-PY')}.`,
+      })
+      await reloadResumenParaLlevar(tenant.id, paraLlevarPedidoId)
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'No se pudo actualizar el precio.'
+      setParaLlevarDetalleFeedback({ type: 'error', message: msg })
+    } finally {
+      setUpdatingParaLlevarItemId(null)
+    }
+  }
+
+  const handleAddProductoManualParaLlevar = async (nombre: string, precioGs: number) => {
+    if (!tenant?.id || !paraLlevarPedidoId) return
+    setAddingManualParaLlevar(true)
+    try {
+      await mesasService.addProductoManualAPedido({
+        tenantId: tenant.id,
+        pedidoId: paraLlevarPedidoId,
+        nombre,
+        precioGs,
+      })
+      setParaLlevarDetalleFeedback({
+        type: 'success',
+        message: `Producto agregado: ${nombre} (Gs. ${precioGs.toLocaleString('es-PY')}).`,
+      })
+      await reloadResumenParaLlevar(tenant.id, paraLlevarPedidoId)
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'No se pudo agregar el producto.'
+      setParaLlevarDetalleFeedback({ type: 'error', message: msg })
+    } finally {
+      setAddingManualParaLlevar(false)
+    }
+  }
+
+  const handleCerrarParaLlevarCuenta = async (metodo?: 'tarjeta' | 'efectivo') => {
+    if (!tenant?.id || !paraLlevarPedidoId) return
+    if (isClosingParaLlevarCuenta) return
+    const pid = paraLlevarPedidoId
+    setIsClosingParaLlevarCuenta(true)
+    try {
+      const result = await cerrarCuentaParaLlevarService.cerrarCuenta({
+        tenantId: tenant.id,
+        pedidoId: pid,
+        usuarioId: usuario?.id ?? null,
+        metodoCobro: metodo ?? null,
+      })
+      setFeedback({
+        type: 'success',
+        title: `Cuenta cerrada · Pedido #${result.numeroPedido}`,
+        message: result.warning
+          ? `Cuenta cerrada. ${result.warning}`
+          : result.facturaEmitidaAhora
+            ? 'Factura emitida e impresión encolada.'
+            : 'Factura: reimpresión encolada.',
+        details: [
+          { label: 'Tipo', value: 'Para llevar' },
+          { label: 'Cobro', value: metodo ?? 'sin método' },
+          { label: 'Impresión', value: result.warning ? 'Pendiente o parcial' : 'Factura (agente)' },
+        ],
+      })
+      try {
+        sessionStorage.removeItem(LS_ULTIMO_PEDIDO_PARA_LLEVAR)
+      } catch {
+        /* ignore */
+      }
+      setParaLlevarPedidoId(null)
+      setParaLlevarCuentaOpen(false)
+      setResumenParaLlevar(null)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'No se pudo cerrar la cuenta.'
+      setFeedback({
+        type: 'error',
+        title: 'No se pudo cerrar la cuenta',
+        message,
+      })
+    } finally {
+      setIsClosingParaLlevarCuenta(false)
+    }
+  }
+
+  const onCerrarCuentaParaLlevarFromModal = async (_mesa: Mesa, metodo?: 'tarjeta' | 'efectivo') => {
+    setParaLlevarCuentaOpen(false)
+    await handleCerrarParaLlevarCuenta(metodo)
   }
 
   const onAddProduct = (product: Producto) => {
@@ -694,6 +951,28 @@ export default function POSView() {
                           <Printer className="h-4 w-4 sm:h-4 sm:w-4" />
                           <span className="hidden sm:inline">Reimprimir</span>
                         </button>
+                        {isSinMesaParaLlevarPos && (
+                          <button
+                            type="button"
+                            onClick={() => void handleAbrirDetalleMesa()}
+                            title={
+                              mesaObj?.id
+                                ? 'Ver resumen editable y cerrar cuenta (para llevar)'
+                                : 'Confirmá un pedido para habilitar el resumen'
+                            }
+                            disabled={!mesaObj?.id}
+                            className={`inline-flex items-center justify-center rounded-lg border p-2 sm:rounded-xl sm:gap-2 sm:px-3 sm:py-2 sm:text-sm sm:font-medium transition min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 ${
+                              !mesaObj?.id ? 'opacity-50 cursor-not-allowed' : ''
+                            } ${
+                              darkMode
+                                ? 'border-amber-500/40 text-amber-200 hover:bg-amber-900/20'
+                                : 'border-amber-200 text-amber-800 hover:bg-amber-50'
+                            }`}
+                          >
+                            <ClipboardList className="h-4 w-4 sm:h-4 sm:w-4" />
+                            <span className="hidden sm:inline">Resumen / Cerrar</span>
+                          </button>
+                        )}
                         {mesaId && (
                           <button
                             type="button"
@@ -927,6 +1206,7 @@ export default function POSView() {
               onEditItem={(itemId) => setEditingItemId(itemId)}
               isMesaOrder={!!mesaId}
               allowManualItem={tenantHasOrientalCustomPOSFeatures(tenant?.id)}
+              hideComerAquiOption={isSinMesaParaLlevarPos}
             />
           </div>
         </div>
@@ -995,26 +1275,77 @@ export default function POSView() {
         darkMode={darkMode}
       />
       {detalleMesaOpen && (
-        <DetalleMesaModal
+        isSinMesaParaLlevarPos ? (
+          <CuentaEditableModal
+            tenantId={tenant?.id ?? null}
+            mesa={mesaObj ?? mesaVirtualParaLlevarUi}
+            resumenPedido={resumenMesa}
+            loadingResumen={loadingResumenMesa}
+            isClosingMesa={isClosingMesaAccount}
+            feedback={detalleMesaFeedback}
+            onClose={() => setDetalleMesaOpen(false)}
+            onCerrarCuenta={onCerrarCuentaFromModal}
+            onUpdateExtraPrecio={handleUpdateExtraPrecioModal}
+            updatingExtraId={updatingExtraPrecioId}
+            onUpdateItemRecargo={handleUpdateItemRecargoModal}
+            updatingItemId={updatingItemRecargoId}
+            onAddProductoManual={handleAddProductoManualModal}
+            addingProductoManual={addingManualItemInDetalle}
+            showCerrarCuenta
+            accountHeaderEyebrow="Cuenta para llevar"
+            accountHeaderTitle={
+              resumenMesa?.pedidos[0]
+                ? `Pedido #${resumenMesa.pedidos[0].numero_pedido}`
+                : 'Pedido'
+            }
+          />
+        ) : (
+          <DetalleMesaModal
+            tenantId={tenant?.id ?? null}
+            mesa={mesaObj}
+            reservasMesa={[]}
+            resumenPedido={resumenMesa}
+            loadingResumen={loadingResumenMesa}
+            isClosingMesa={isClosingMesaAccount}
+            feedback={detalleMesaFeedback}
+            onClose={() => setDetalleMesaOpen(false)}
+            onTomarPedido={() => setDetalleMesaOpen(false)}
+            onCerrarCuenta={onCerrarCuentaFromModal}
+            onUpdateExtraPrecio={handleUpdateExtraPrecioModal}
+            updatingExtraId={updatingExtraPrecioId}
+            onUpdateItemRecargo={handleUpdateItemRecargoModal}
+            updatingItemId={updatingItemRecargoId}
+            onAddProductoManual={handleAddProductoManualModal}
+            addingProductoManual={addingManualItemInDetalle}
+            showOperationalActions={false}
+            showSplitActions={false}
+            showCerrarCuenta
+          />
+        )
+      )}
+      {paraLlevarCuentaOpen && (
+        <CuentaEditableModal
           tenantId={tenant?.id ?? null}
-          mesa={mesaObj}
-          reservasMesa={[]}
-          resumenPedido={resumenMesa}
-          loadingResumen={loadingResumenMesa}
-          isClosingMesa={isClosingMesaAccount}
-          feedback={detalleMesaFeedback}
-          onClose={() => setDetalleMesaOpen(false)}
-          onTomarPedido={() => setDetalleMesaOpen(false)}
-          onCerrarCuenta={onCerrarCuentaFromModal}
-          onUpdateExtraPrecio={handleUpdateExtraPrecioModal}
-          updatingExtraId={updatingExtraPrecioId}
-          onUpdateItemRecargo={handleUpdateItemRecargoModal}
-          updatingItemId={updatingItemRecargoId}
-          onAddProductoManual={handleAddProductoManualModal}
-          addingProductoManual={addingManualItemInDetalle}
-          showOperationalActions={false}
-          showSplitActions={false}
+          mesa={mesaVirtualParaLlevarUi}
+          resumenPedido={resumenParaLlevar}
+          loadingResumen={loadingResumenParaLlevar}
+          isClosingMesa={isClosingParaLlevarCuenta}
+          feedback={paraLlevarDetalleFeedback}
+          onClose={() => setParaLlevarCuentaOpen(false)}
+          onCerrarCuenta={onCerrarCuentaParaLlevarFromModal}
+          onUpdateExtraPrecio={handleUpdateExtraPrecioParaLlevar}
+          updatingExtraId={updatingParaLlevarExtraId}
+          onUpdateItemRecargo={handleUpdateItemRecargoParaLlevar}
+          updatingItemId={updatingParaLlevarItemId}
+          onAddProductoManual={handleAddProductoManualParaLlevar}
+          addingProductoManual={addingManualParaLlevar}
           showCerrarCuenta
+          accountHeaderEyebrow="Cuenta para llevar"
+          accountHeaderTitle={
+            resumenParaLlevar?.pedidos[0]
+              ? `Pedido #${resumenParaLlevar.pedidos[0].numero_pedido}`
+              : 'Pedido'
+          }
         />
       )}
       {isCartaQrModalOpen && cartaQrUrl && (

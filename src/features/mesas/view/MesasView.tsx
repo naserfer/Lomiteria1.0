@@ -12,6 +12,7 @@ import { ROUTES } from '@/config/routes'
 import { mesasService } from '../services/mesasService'
 import { cerrarCuentaMesaService } from '../services/cerrarCuentaMesaService'
 import { DetalleMesaModal } from '../components/DetalleMesaModal'
+import { CuentaEditableModal } from '../components/CuentaEditableModal'
 import { useRealtimeMesas } from '../hooks/useRealtimeMesas'
 import type { EstadoMesa, Mesa, MesaReserva, ResumenMesa } from '../types/mesas.types'
 import { MesaPedidoCocinaToastHost } from '@/features/pos/components/MesaPedidoCocinaToastHost'
@@ -41,6 +42,11 @@ const ESTADO_CARD_BG: Record<EstadoMesa, string> = {
 
 const ESTADO_LABEL: Record<EstadoMesa, string> = {
   libre: 'Libre', ocupada: 'Ocupada', reservada: 'Reservada', bloqueada: 'Bloqueada',
+}
+
+const isVirtualTakeawayMesa = (mesa: Mesa | null | undefined) => {
+  const name = (mesa?.nombre ?? '').toLowerCase()
+  return name === '__virtual_para_llevar__' || name.includes('virtual_para_llevar')
 }
 
 // ─── Componente ───────────────────────────────────────────────────────────────
@@ -317,6 +323,7 @@ export default function MesasView() {
     () => mesas.find(m => m.id === selectedMesaId) ?? null,
     [mesas, selectedMesaId]
   )
+  const selectedIsVirtualTakeaway = isVirtualTakeawayMesa(selectedMesa)
 
   const resumen = useMemo(() => ({
     total:     mesas.length,
@@ -534,6 +541,13 @@ export default function MesasView() {
           ? `Mesa liberada (pedido #${result.numeroPedido}). Atención: ${result.warning}`
           : `Cuenta cerrada (${metodo ?? 'sin método'}) (pedido #${result.numeroPedido}). Factura ${accion}; mesa liberada.`
       )
+      if (mesa.nombre === '__virtual_para_llevar__') {
+        try {
+          await mesasService.deleteVirtualTakeawayMesa({ tenantId: tenant.id, mesaId: mesa.id })
+        } catch {
+          // no bloquear cierre ya realizado
+        }
+      }
       await loadData()
     } catch (e: any) {
       setMesaFeedback(mesa.id, 'error', e?.message ?? 'No se pudo cerrar la cuenta de la mesa.')
@@ -770,6 +784,7 @@ export default function MesasView() {
           ) : (
             <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
               {mesas.map(mesa => {
+                const isVirtualTakeaway = isVirtualTakeawayMesa(mesa)
                 const reservasMesa  = reservasActivasPorMesa.get(mesa.id) ?? []
                 const enUnion       = mesasEnUnion.has(mesa.id)
                 const feedback      = mesaFeedbackById[mesa.id]
@@ -779,6 +794,18 @@ export default function MesasView() {
                 const confirmDelete = confirmDeleteMesaId === mesa.id
                 const isDeleting    = deletingMesaId === mesa.id
                 const showCloseOptions = closeOptionsMesaId === mesa.id
+                const cardBorder = isVirtualTakeaway
+                  ? (darkMode ? 'border-amber-500' : 'border-amber-400')
+                  : ESTADO_BORDER[mesa.estado]
+                const cardBg = isVirtualTakeaway
+                  ? (darkMode ? 'bg-amber-950/20' : 'bg-amber-50/90')
+                  : ESTADO_CARD_BG[mesa.estado]
+                const estadoBadge = isVirtualTakeaway
+                  ? 'bg-amber-500 text-white border-amber-500 dark:bg-amber-500 dark:border-amber-500'
+                  : ESTADO_BADGE[mesa.estado]
+                const estadoLabel = isVirtualTakeaway ? 'Para llevar' : ESTADO_LABEL[mesa.estado]
+                const headerEyebrow = isVirtualTakeaway ? 'Para llevar' : 'Mesa'
+                const headerTitle = isVirtualTakeaway ? 'Para llevar' : `#${mesa.numero}`
 
                 return (
                   <article
@@ -792,17 +819,17 @@ export default function MesasView() {
                         setSelectedMesaId(mesa.id)
                       }
                     }}
-                    className={`rounded-3xl border-[3px] p-5 shadow-sm flex flex-col gap-3 transition-colors cursor-pointer ${ESTADO_BORDER[mesa.estado]} ${ESTADO_CARD_BG[mesa.estado]}`}
+                    className={`rounded-3xl border-[3px] p-5 shadow-sm flex flex-col gap-3 transition-colors cursor-pointer ${cardBorder} ${cardBg}`}
                   >
                     {/* Cabecera de tarjeta */}
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="text-[10px] uppercase tracking-widest text-gray-400 dark:text-gray-500">Mesa</p>
-                        <h3 className="text-3xl font-black leading-none mt-0.5">#{mesa.numero}</h3>
+                        <p className="text-[10px] uppercase tracking-widest text-gray-400 dark:text-gray-500">{headerEyebrow}</p>
+                        <h3 className="text-3xl font-black leading-none mt-0.5">{headerTitle}</h3>
                       </div>
                       <div className="flex flex-col items-end gap-2 shrink-0">
-                        <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${ESTADO_BADGE[mesa.estado]}`}>
-                          {ESTADO_LABEL[mesa.estado]}
+                        <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${estadoBadge}`}>
+                          {estadoLabel}
                         </span>
                         {enUnion && (
                           <span className="inline-flex items-center gap-1 rounded-full border border-violet-200 dark:border-violet-800 bg-violet-50 dark:bg-violet-950/30 px-2 py-0.5 text-[10px] font-semibold text-violet-600 dark:text-violet-400">
@@ -1019,36 +1046,65 @@ export default function MesasView() {
             </section>
           )}
 
-          <DetalleMesaModal
-            tenantId={tenant?.id ?? null}
-            mesa={selectedMesa}
-            reservasMesa={selectedMesa ? (reservasActivasPorMesa.get(selectedMesa.id) ?? []) : []}
-            resumenPedido={selectedMesa ? (resumenByMesa[selectedMesa.id] ?? null) : null}
-            loadingResumen={loadingResumen}
-            isSaving={selectedMesa ? savingId === selectedMesa.id : false}
-            isClosingMesa={selectedMesa ? closingCuentaMesaId === selectedMesa.id : false}
-            isSplitting={selectedMesa ? splittingMesaId === selectedMesa.id : false}
-            partes={selectedMesa ? (splitPartsByMesa[selectedMesa.id] ?? 2) : 2}
-            confirmDividir={selectedMesa ? confirmDividirMesaId === selectedMesa.id : false}
-            feedback={selectedMesa ? (mesaFeedbackById[selectedMesa.id] ?? null) : null}
-            onClose={() => {
-              setSelectedMesaId(null)
-              setConfirmDividirMesaId(null)
-            }}
-            onTomarPedido={goToMesaPOS}
-            onCerrarCuenta={handleCerrarCuentaMesa}
-            onSetEstado={setEstado}
-            onAdjustSplit={adjustSplit}
-            onRequestDividir={setConfirmDividirMesaId}
-            onCancelDividir={() => setConfirmDividirMesaId(null)}
-            onDividir={handleDividirCuenta}
-            onUpdateExtraPrecio={handleUpdateExtraPrecio}
-            updatingExtraId={updatingExtraPrecioId}
-            onUpdateItemRecargo={handleUpdateItemRecargo}
-            updatingItemId={updatingItemRecargoId}
-            onAddProductoManual={handleAddProductoManual}
-            addingProductoManual={selectedMesa ? addingManualItemMesaId === selectedMesa.id : false}
-          />
+          {selectedIsVirtualTakeaway ? (
+            <CuentaEditableModal
+              tenantId={tenant?.id ?? null}
+              mesa={selectedMesa}
+              resumenPedido={selectedMesa ? (resumenByMesa[selectedMesa.id] ?? null) : null}
+              loadingResumen={loadingResumen}
+              isClosingMesa={selectedMesa ? closingCuentaMesaId === selectedMesa.id : false}
+              feedback={selectedMesa ? (mesaFeedbackById[selectedMesa.id] ?? null) : null}
+              onClose={() => {
+                setSelectedMesaId(null)
+                setConfirmDividirMesaId(null)
+              }}
+              onCerrarCuenta={handleCerrarCuentaMesa}
+              onUpdateExtraPrecio={handleUpdateExtraPrecio}
+              updatingExtraId={updatingExtraPrecioId}
+              onUpdateItemRecargo={handleUpdateItemRecargo}
+              updatingItemId={updatingItemRecargoId}
+              onAddProductoManual={handleAddProductoManual}
+              addingProductoManual={selectedMesa ? addingManualItemMesaId === selectedMesa.id : false}
+              showCerrarCuenta
+              accountHeaderEyebrow="Cuenta para llevar"
+              accountHeaderTitle={
+                selectedMesa && resumenByMesa[selectedMesa.id]?.pedidos?.[0]
+                  ? `Pedido #${resumenByMesa[selectedMesa.id].pedidos[0].numero_pedido}`
+                  : 'Pedido'
+              }
+            />
+          ) : (
+            <DetalleMesaModal
+              tenantId={tenant?.id ?? null}
+              mesa={selectedMesa}
+              reservasMesa={selectedMesa ? (reservasActivasPorMesa.get(selectedMesa.id) ?? []) : []}
+              resumenPedido={selectedMesa ? (resumenByMesa[selectedMesa.id] ?? null) : null}
+              loadingResumen={loadingResumen}
+              isSaving={selectedMesa ? savingId === selectedMesa.id : false}
+              isClosingMesa={selectedMesa ? closingCuentaMesaId === selectedMesa.id : false}
+              isSplitting={selectedMesa ? splittingMesaId === selectedMesa.id : false}
+              partes={selectedMesa ? (splitPartsByMesa[selectedMesa.id] ?? 2) : 2}
+              confirmDividir={selectedMesa ? confirmDividirMesaId === selectedMesa.id : false}
+              feedback={selectedMesa ? (mesaFeedbackById[selectedMesa.id] ?? null) : null}
+              onClose={() => {
+                setSelectedMesaId(null)
+                setConfirmDividirMesaId(null)
+              }}
+              onTomarPedido={goToMesaPOS}
+              onCerrarCuenta={handleCerrarCuentaMesa}
+              onSetEstado={setEstado}
+              onAdjustSplit={adjustSplit}
+              onRequestDividir={setConfirmDividirMesaId}
+              onCancelDividir={() => setConfirmDividirMesaId(null)}
+              onDividir={handleDividirCuenta}
+              onUpdateExtraPrecio={handleUpdateExtraPrecio}
+              updatingExtraId={updatingExtraPrecioId}
+              onUpdateItemRecargo={handleUpdateItemRecargo}
+              updatingItemId={updatingItemRecargoId}
+              onAddProductoManual={handleAddProductoManual}
+              addingProductoManual={selectedMesa ? addingManualItemMesaId === selectedMesa.id : false}
+            />
+          )}
 
           {/* ── Reservas: formulario + listado lado a lado (desktop) ── */}
           <section className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
