@@ -549,6 +549,7 @@ export default function MesasView() {
         }
       }
       await loadData()
+      setSelectedMesaId(null)
     } catch (e: any) {
       setMesaFeedback(mesa.id, 'error', e?.message ?? 'No se pudo cerrar la cuenta de la mesa.')
     } finally {
@@ -621,6 +622,25 @@ export default function MesasView() {
       setAddingManualItemMesaId(null)
     }
   }, [tenant?.id, selectedMesa, loadData, setMesaFeedback])
+
+  const handleReemplazarProductoCatalogo = useCallback(
+    async (itemPedidoId: string, nuevoProductoId: string) => {
+      if (!tenant?.id || !selectedMesa) return
+      try {
+        await mesasService.reemplazarItemPedidoPorProductoCatalogo({
+          tenantId: tenant.id,
+          itemPedidoId,
+          nuevoProductoId,
+        })
+        setMesaFeedback(selectedMesa.id, 'success', 'Producto reemplazado; cocina reimpresa.')
+        await loadData()
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : 'No se pudo cambiar el producto.'
+        setMesaFeedback(selectedMesa.id, 'error', msg)
+      }
+    },
+    [tenant?.id, selectedMesa, loadData, setMesaFeedback]
+  )
 
   const handleStartEdit = (mesa: Mesa) => {
     setConfirmDeleteMesaId(null)
@@ -1065,6 +1085,7 @@ export default function MesasView() {
               updatingItemId={updatingItemRecargoId}
               onAddProductoManual={handleAddProductoManual}
               addingProductoManual={selectedMesa ? addingManualItemMesaId === selectedMesa.id : false}
+              onReemplazarProductoCatalogo={handleReemplazarProductoCatalogo}
               showCerrarCuenta
               accountHeaderEyebrow="Cuenta para llevar"
               accountHeaderTitle={
@@ -1103,6 +1124,7 @@ export default function MesasView() {
               updatingItemId={updatingItemRecargoId}
               onAddProductoManual={handleAddProductoManual}
               addingProductoManual={selectedMesa ? addingManualItemMesaId === selectedMesa.id : false}
+              onReemplazarProductoCatalogo={handleReemplazarProductoCatalogo}
             />
           )}
 

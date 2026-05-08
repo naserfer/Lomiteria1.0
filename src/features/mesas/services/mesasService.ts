@@ -1,8 +1,40 @@
 import { createClient } from '@/lib/supabase/client'
+import { requestAgentPrint } from '@/features/impresion/agentPrintClient'
 import { broadcastMesasChanged, broadcastReservasChanged } from './mesasRealtimeBroadcast'
 import type { EstadoMesa, Mesa, MesaReserva, MesaUnion, MesaUnionItem, PedidoDivision, ResumenMesa } from '../types/mesas.types'
 
 const MESAS_SELECT = 'id, tenant_id, numero, nombre, capacidad, estado, activa, orden, created_at, updated_at'
+
+/** Ediciones en detalle de mesa: cocina debe ver el pedido actualizado (agente vía `reprint_solicitud`). */
+function enqueueReprintCocinaTrasEdicionDetalle(pedidoId: string, tenantId: string): void {
+  void requestAgentPrint(pedidoId, 'cocina', tenantId).catch((err: unknown) => {
+    console.warn('[mesasService] No se pudo encolar reimpresión cocina tras edición en detalle:', err)
+  })
+}
+
+/** Precio lista incluye IVA: desglosa `monto_iva` por línea (criterio alineado a facturación típica PY). */
+function montoIvaLineaDesdeSubtotalIncluido(
+  subtotalIncluido: number,
+  tasaIva: number
+): { iva_porcentaje: number; monto_iva: number } {
+  const t = Number(tasaIva)
+  if (!Number.isFinite(t) || t <= 0) return { iva_porcentaje: 0, monto_iva: 0 }
+  if (Math.abs(t - 10) < 0.01) {
+    const neto = subtotalIncluido / 1.1
+    return {
+      iva_porcentaje: 10,
+      monto_iva: Math.round((subtotalIncluido - neto) * 100) / 100,
+    }
+  }
+  if (Math.abs(t - 5) < 0.01) {
+    const neto = subtotalIncluido / 1.05
+    return {
+      iva_porcentaje: 5,
+      monto_iva: Math.round((subtotalIncluido - neto) * 100) / 100,
+    }
+  }
+  return { iva_porcentaje: Math.round(t), monto_iva: 0 }
+}
 
 export const mesasService = {
   async getOrCreateVirtualTakeawayMesa(tenantId: string): Promise<Mesa> {
@@ -187,6 +219,8 @@ export const mesasService = {
     if (updatePedidoError) {
       throw new Error(`No se pudo actualizar el total del pedido: ${updatePedidoError.message}`)
     }
+
+    enqueueReprintCocinaTrasEdicionDetalle(item.pedido_id, params.tenantId)
   },
 
   async updateItemPedidoRecargo(params: {
@@ -362,6 +396,8 @@ export const mesasService = {
         }
       }
     }
+
+    enqueueReprintCocinaTrasEdicionDetalle(itemRow.pedido_id, params.tenantId)
 
     return {
       pedidoId: itemRow.pedido_id,
@@ -1158,5 +1194,140 @@ export const mesasService = {
       .eq('tenant_id', params.tenantId)
 
     if (updatePedidoError) throw new Error(`No se pudo actualizar el total del pedido: ${updatePedidoError.message}`)
+
+    enqueueReprintCocinaTrasEdicionDetalle(pedido.id, params.tenantId)
+  },
+
+  /**
+   * Reemplaza la línea `items_pedido` por otro producto del catálogo (misma cantidad).
+   * Quita extras/modificaciones de la línea; recalcula total del pedido y encola reimpresión cocina.
+   * No admite productos tipo combo (definidos en `combo_items`).
+   */
+  async reemplazarItemPedidoPorProductoCatalogo(params: {
+    tenantId: string
+    itemPedidoId: string
+    nuevoProductoId: string
+  }): Promise<{ pedidoId: string }> {
+    const supabase = createClient()
+
+    const { data: itemRow, error: itemError } = await supabase
+      .from('items_pedido')
+      .select(`
+        id,
+        pedido_id,
+        cantidad,
+        pedidos!inner (
+          id,
+          tenant_id,
+          total,
+          estado,
+          estado_pedido,
+          mesa_id
+        )
+      `)
+      .eq('id', params.itemPedidoId)
+      .eq('pedidos.tenant_id', params.tenantId)
+      .single()
+
+    if (itemError || !itemRow) {
+      throw new Error('No se encontró el ítem del pedido o no pertenece a este local.')
+    }
+
+    const pedido = Array.isArray(itemRow.pedidos) ? itemRow.pedidos[0] : itemRow.pedidos
+    if (!pedido) throw new Error('No se pudo validar el pedido del ítem.')
+    if (pedido.estado === 'cancelado') throw new Error('No se puede editar un pedido cancelado.')
+    if (!['EDIT', 'FACT'].includes(pedido.estado_pedido)) {
+      throw new Error('Solo se pueden editar pedidos abiertos o confirmados.')
+    }
+    if (pedido.mesa_id == null) {
+      throw new Error('Este ítem no pertenece a un pedido con mesa.')
+    }
+
+    const { data: comboProbe, error: comboErr } = await supabase
+      .from('combo_items')
+      .select('id')
+      .eq('combo_id', params.nuevoProductoId)
+      .limit(1)
+
+    if (comboErr) {
+      throw new Error(`No se pudo validar el producto: ${comboErr.message}`)
+    }
+    if (comboProbe && comboProbe.length > 0) {
+      throw new Error(
+        'Los combos no se pueden elegir como reemplazo aquí. Usá el punto de venta para cargar un combo.'
+      )
+    }
+
+    const { data: producto, error: prodError } = await supabase
+      .from('productos')
+      .select('id, nombre, precio, tasa_iva, disponible, is_deleted')
+      .eq('tenant_id', params.tenantId)
+      .eq('id', params.nuevoProductoId)
+      .maybeSingle()
+
+    if (prodError || !producto) {
+      throw new Error('No se encontró el producto en el catálogo.')
+    }
+    if (producto.is_deleted) throw new Error('El producto está dado de baja.')
+    if (!producto.disponible) throw new Error('El producto no está disponible.')
+
+    const cantidad = Math.max(1, Math.floor(Number(itemRow.cantidad ?? 1)))
+    const precioUnit = Math.max(0, Math.round(Number(producto.precio ?? 0)))
+    const subtotal = Math.round(cantidad * precioUnit * 100) / 100
+    const { iva_porcentaje, monto_iva } = montoIvaLineaDesdeSubtotalIncluido(
+      subtotal,
+      Number(producto.tasa_iva ?? 10)
+    )
+
+    const { error: delCustError } = await supabase
+      .from('items_pedido_customizacion')
+      .delete()
+      .eq('item_pedido_id', params.itemPedidoId)
+
+    if (delCustError) {
+      throw new Error(`No se pudieron quitar modificaciones del ítem: ${delCustError.message}`)
+    }
+
+    const nowIso = new Date().toISOString()
+    const { error: updItemError } = await supabase
+      .from('items_pedido')
+      .update({
+        producto_id: params.nuevoProductoId,
+        producto_nombre: producto.nombre,
+        precio_unitario: precioUnit,
+        subtotal,
+        notas: null,
+        iva_porcentaje,
+        monto_iva,
+      })
+      .eq('id', params.itemPedidoId)
+
+    if (updItemError) {
+      throw new Error(`No se pudo actualizar el ítem: ${updItemError.message}`)
+    }
+
+    const { data: sumRows, error: sumErr } = await supabase
+      .from('items_pedido')
+      .select('subtotal')
+      .eq('pedido_id', itemRow.pedido_id)
+
+    if (sumErr) {
+      throw new Error(`No se pudo recalcular el total: ${sumErr.message}`)
+    }
+
+    const nuevoTotal = (sumRows ?? []).reduce((s, r) => s + Number(r.subtotal ?? 0), 0)
+    const { error: updPedidoError } = await supabase
+      .from('pedidos')
+      .update({ total: nuevoTotal, updated_at: nowIso })
+      .eq('id', itemRow.pedido_id)
+      .eq('tenant_id', params.tenantId)
+
+    if (updPedidoError) {
+      throw new Error(`No se pudo actualizar el total del pedido: ${updPedidoError.message}`)
+    }
+
+    enqueueReprintCocinaTrasEdicionDetalle(itemRow.pedido_id, params.tenantId)
+
+    return { pedidoId: itemRow.pedido_id }
   },
 }

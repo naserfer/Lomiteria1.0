@@ -618,6 +618,22 @@ export default function POSView() {
     }
   }
 
+  const handleReemplazarProductoDetalleMesa = async (itemPedidoId: string, nuevoProductoId: string) => {
+    if (!tenant?.id || !mesaObj) return
+    try {
+      await mesasService.reemplazarItemPedidoPorProductoCatalogo({
+        tenantId: tenant.id,
+        itemPedidoId,
+        nuevoProductoId,
+      })
+      setDetalleMesaFeedback({ type: 'success', message: 'Producto reemplazado; cocina reimpresa.' })
+      await reloadResumenMesa(mesaObj, tenant.id)
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'No se pudo cambiar el producto.'
+      setDetalleMesaFeedback({ type: 'error', message: msg })
+    }
+  }
+
   const onCerrarCuentaFromModal = async (_mesa: Mesa, metodo?: 'tarjeta' | 'efectivo') => {
     setDetalleMesaOpen(false)
     await handleCerrarCuentaMesa(metodo)
@@ -743,6 +759,22 @@ export default function POSView() {
       setParaLlevarDetalleFeedback({ type: 'error', message: msg })
     } finally {
       setAddingManualParaLlevar(false)
+    }
+  }
+
+  const handleReemplazarProductoParaLlevarDetalle = async (itemPedidoId: string, nuevoProductoId: string) => {
+    if (!tenant?.id || !paraLlevarPedidoId) return
+    try {
+      await mesasService.reemplazarItemPedidoPorProductoCatalogo({
+        tenantId: tenant.id,
+        itemPedidoId,
+        nuevoProductoId,
+      })
+      setParaLlevarDetalleFeedback({ type: 'success', message: 'Producto reemplazado; cocina reimpresa.' })
+      await reloadResumenParaLlevar(tenant.id, paraLlevarPedidoId)
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'No se pudo cambiar el producto.'
+      setParaLlevarDetalleFeedback({ type: 'error', message: msg })
     }
   }
 
@@ -1317,6 +1349,7 @@ export default function POSView() {
             updatingItemId={updatingItemRecargoId}
             onAddProductoManual={handleAddProductoManualModal}
             addingProductoManual={addingManualItemInDetalle}
+            onReemplazarProductoCatalogo={handleReemplazarProductoDetalleMesa}
             showCerrarCuenta
             accountHeaderEyebrow="Cuenta para llevar"
             accountHeaderTitle={
@@ -1343,6 +1376,7 @@ export default function POSView() {
             updatingItemId={updatingItemRecargoId}
             onAddProductoManual={handleAddProductoManualModal}
             addingProductoManual={addingManualItemInDetalle}
+            onReemplazarProductoCatalogo={handleReemplazarProductoDetalleMesa}
             showOperationalActions={false}
             showSplitActions={false}
             showCerrarCuenta
@@ -1365,6 +1399,7 @@ export default function POSView() {
           updatingItemId={updatingParaLlevarItemId}
           onAddProductoManual={handleAddProductoManualParaLlevar}
           addingProductoManual={addingManualParaLlevar}
+          onReemplazarProductoCatalogo={handleReemplazarProductoParaLlevarDetalle}
           showCerrarCuenta
           accountHeaderEyebrow="Cuenta para llevar"
           accountHeaderTitle={

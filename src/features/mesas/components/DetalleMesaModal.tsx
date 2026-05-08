@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { createClient } from '@/lib/supabase/client'
 import {
   CalendarClock,
   CheckCircle2,
@@ -53,6 +54,8 @@ export interface DetalleMesaModalProps {
   updatingItemId?: string | null
   onAddProductoManual?: (nombre: string, precioGs: number) => Promise<void>
   addingProductoManual?: boolean
+  /** Sustituir la línea por otro producto del catálogo (detalle mesa / cuenta para llevar). */
+  onReemplazarProductoCatalogo?: (itemPedidoId: string, nuevoProductoId: string) => Promise<void>
   showOperationalActions?: boolean
   showSplitActions?: boolean
   showCerrarCuenta?: boolean
@@ -136,6 +139,7 @@ export function DetalleMesaModal({
   updatingItemId = null,
   onAddProductoManual,
   addingProductoManual = false,
+  onReemplazarProductoCatalogo,
   showOperationalActions = true,
   showSplitActions = true,
   showCerrarCuenta = true,
@@ -155,6 +159,11 @@ export function DetalleMesaModal({
   const [manualNombre, setManualNombre] = useState('')
   const [manualPrecio, setManualPrecio] = useState('')
   const [realtimeNotice, setRealtimeNotice] = useState<string | null>(null)
+  const [pickProductItemId, setPickProductItemId] = useState<string | null>(null)
+  const [catalogProducts, setCatalogProducts] = useState<Array<{ id: string; nombre: string; precio: number }>>([])
+  const [catalogLoading, setCatalogLoading] = useState(false)
+  const [catalogSearch, setCatalogSearch] = useState('')
+  const [replacingItemId, setReplacingItemId] = useState<string | null>(null)
   const editInputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => { setMounted(true) }, [])
@@ -170,6 +179,10 @@ export function DetalleMesaModal({
     setManualNombre('')
     setManualPrecio('')
     setRealtimeNotice(null)
+    setPickProductItemId(null)
+    setCatalogProducts([])
+    setCatalogSearch('')
+    setReplacingItemId(null)
   }, [mesa?.id])
 
   // Auto-dismiss del banner realtime tras 6s.
@@ -178,6 +191,59 @@ export function DetalleMesaModal({
     const t = window.setTimeout(() => setRealtimeNotice(null), 6000)
     return () => window.clearTimeout(t)
   }, [realtimeNotice])
+
+  useEffect(() => {
+    if (!pickProductItemId || !tenantId) return
+    let cancelled = false
+    ;(async () => {
+      setCatalogLoading(true)
+      try {
+        const supabase = createClient()
+        const { data, error } = await supabase
+          .from('productos')
+          .select('id, nombre, precio')
+          .eq('tenant_id', tenantId)
+          .eq('disponible', true)
+          .eq('is_deleted', false)
+          .order('nombre')
+          .limit(600)
+        if (cancelled) return
+        if (error) throw error
+        setCatalogProducts(
+          (data ?? []).map((r) => ({
+            id: r.id,
+            nombre: r.nombre,
+            precio: Number(r.precio ?? 0),
+          }))
+        )
+      } catch {
+        if (!cancelled) setCatalogProducts([])
+      } finally {
+        if (!cancelled) setCatalogLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [pickProductItemId, tenantId])
+
+  const filteredCatalog = useMemo(() => {
+    const q = catalogSearch.trim().toLowerCase()
+    if (!q) return catalogProducts
+    return catalogProducts.filter((p) => p.nombre.toLowerCase().includes(q))
+  }, [catalogProducts, catalogSearch])
+
+  const handleConfirmReemplazoProducto = async (nuevoProductoId: string) => {
+    if (!onReemplazarProductoCatalogo || !pickProductItemId) return
+    setReplacingItemId(pickProductItemId)
+    try {
+      await onReemplazarProductoCatalogo(pickProductItemId, nuevoProductoId)
+      setPickProductItemId(null)
+      setCatalogSearch('')
+    } finally {
+      setReplacingItemId(null)
+    }
+  }
 
   // Listener focalizado en esta mesa: detecta cuando otro usuario cambia su estado.
   useRealtimeMesaDetalle(takeawayAccountMode ? null : tenantId, takeawayAccountMode ? null : mesa, {
@@ -521,6 +587,20 @@ export function DetalleMesaModal({
                                     <span className="min-w-0 truncate leading-tight">
                                       <span className="font-bold text-red-600 dark:text-red-400">{item.cantidad}x</span>{' '}
                                       {item.producto_nombre}
+                                      {onReemplazarProductoCatalogo && tenantId && (
+                                        <button
+                                          type="button"
+                                          className="ml-2 align-middle shrink-0 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-800 hover:bg-indigo-100 dark:border-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-200 dark:hover:bg-indigo-900/50 disabled:opacity-50"
+                                          disabled={Boolean(replacingItemId) || isClosingMesa || Boolean(pickProductItemId)}
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            setCatalogSearch('')
+                                            setPickProductItemId(item.id)
+                                          }}
+                                        >
+                                          Cambiar producto
+                                        </button>
+                                      )}
                                     </span>
                                     <span
                                       aria-hidden="true"
@@ -862,6 +942,81 @@ export function DetalleMesaModal({
             </div>
           )}
         </div>
+
+        {pickProductItemId && (
+          <div
+            className="absolute inset-0 z-[35] flex flex-col justify-end sm:justify-center p-3 sm:p-6 bg-black/50 rounded-3xl"
+            onClick={() => {
+              setPickProductItemId(null)
+              setCatalogSearch('')
+            }}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="picker-producto-title"
+              className="mx-auto flex max-h-[min(72vh,560px)] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-900"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between gap-2 border-b border-gray-100 px-4 py-3 dark:border-gray-800">
+                <h3 id="picker-producto-title" className="text-base font-bold text-gray-900 dark:text-gray-100">
+                  Elegí el producto nuevo
+                </h3>
+                <button
+                  type="button"
+                  className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
+                  onClick={() => {
+                    setPickProductItemId(null)
+                    setCatalogSearch('')
+                  }}
+                  aria-label="Cerrar"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="border-b border-gray-100 px-4 py-2 dark:border-gray-800">
+                <input
+                  type="search"
+                  value={catalogSearch}
+                  onChange={(e) => setCatalogSearch(e.target.value)}
+                  placeholder="Buscar por nombre…"
+                  className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-950"
+                  autoFocus
+                />
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
+                {catalogLoading ? (
+                  <p className="py-8 text-center text-sm text-gray-500">
+                    <Loader2 className="inline h-5 w-5 animate-spin" /> Cargando carta…
+                  </p>
+                ) : filteredCatalog.length === 0 ? (
+                  <p className="py-6 text-center text-sm text-gray-500">No hay productos que coincidan.</p>
+                ) : (
+                  <ul className="space-y-1">
+                    {filteredCatalog.map((p) => (
+                      <li key={p.id}>
+                        <button
+                          type="button"
+                          disabled={replacingItemId !== null}
+                          onClick={() => void handleConfirmReemplazoProducto(p.id)}
+                          className="flex w-full items-center justify-between gap-2 rounded-xl border border-transparent px-3 py-2.5 text-left text-sm hover:border-indigo-200 hover:bg-indigo-50 dark:hover:border-indigo-800 dark:hover:bg-indigo-950/40 disabled:opacity-50"
+                        >
+                          <span className="min-w-0 font-medium text-gray-900 dark:text-gray-100">{p.nombre}</span>
+                          <span className="shrink-0 tabular-nums text-gray-600 dark:text-gray-400">
+                            Gs. {Math.round(p.precio).toLocaleString('es-PY')}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <p className="border-t border-gray-100 px-4 py-2 text-[11px] text-gray-500 dark:border-gray-800">
+                Se descartan extras y modificaciones de esa línea. La cocina recibirá una reimpresión del pedido.
+              </p>
+            </div>
+          </div>
+        )}
       </div>
     </div>,
     document.body

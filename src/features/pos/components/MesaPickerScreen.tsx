@@ -202,6 +202,7 @@ export function MesaPickerScreen({ tenantId, onSinMesa }: MesaPickerScreenProps)
         },
       }))
       await fetchMesas(true)
+      setSelectedMesaId(null)
     } catch (e: any) {
       setMesas(prev => prev.map(m => m.id === mesa.id ? { ...m, estado: estadoPrevio } : m))
       setMesaFeedbackById(prev => ({
@@ -296,6 +297,31 @@ export function MesaPickerScreen({ tenantId, onSinMesa }: MesaPickerScreenProps)
       setAddingManualItemMesaId(null)
     }
   }, [tenantId, selectedMesaId, fetchMesas])
+
+  const handleReemplazarProductoCatalogo = useCallback(
+    async (itemPedidoId: string, nuevoProductoId: string) => {
+      if (!selectedMesaId) return
+      try {
+        await mesasService.reemplazarItemPedidoPorProductoCatalogo({
+          tenantId,
+          itemPedidoId,
+          nuevoProductoId,
+        })
+        setMesaFeedbackById((prev) => ({
+          ...prev,
+          [selectedMesaId]: { type: 'success', message: 'Producto reemplazado; cocina reimpresa.' },
+        }))
+        await fetchMesas(true)
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : 'No se pudo cambiar el producto.'
+        setMesaFeedbackById((prev) => ({
+          ...prev,
+          [selectedMesaId]: { type: 'error', message: msg },
+        }))
+      }
+    },
+    [tenantId, selectedMesaId, fetchMesas]
+  )
 
   const isBusy = navigatingTo !== null
 
@@ -527,6 +553,7 @@ export function MesaPickerScreen({ tenantId, onSinMesa }: MesaPickerScreenProps)
         updatingItemId={updatingItemRecargoId}
         onAddProductoManual={handleAddProductoManual}
         addingProductoManual={selectedMesaId ? addingManualItemMesaId === selectedMesaId : false}
+        onReemplazarProductoCatalogo={handleReemplazarProductoCatalogo}
         showOperationalActions={false}
         showSplitActions={false}
       />
