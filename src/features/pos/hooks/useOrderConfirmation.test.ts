@@ -92,4 +92,18 @@ describe('useOrderConfirmation', () => {
     expect(payload.tipo).toBe('local')
     expect(payload.emitirFactura).toBe(false)
   })
+
+  it('usa mesaIdOverride cuando el hook aún no tiene mesa (flujo sin mesa virtual)', async () => {
+    const { result } = renderHook(() => useOrderConfirmation(null))
+
+    await act(async () => {
+      await result.current.confirmOrderNoFactura({ mesaIdOverride: 'mesa-virtual-uuid' })
+    })
+
+    const payload = mockConfirmOrder.mock.calls[0][0]
+    expect(payload.mesaId).toBe('mesa-virtual-uuid')
+    expect(payload.emitirFactura).toBe(false)
+    expect(payload.suppressPuntosEnSuccessDetails).toBe(false)
+    expect(payload.suppressPuntosGanadosSideEffects).toBe(false)
+  })
 })

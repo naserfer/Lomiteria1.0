@@ -390,13 +390,38 @@ export default function POSView() {
       return
     }
 
-    if (effectiveMesaId) {
-      // Con mesa: enviar a cocina sin emitir factura (la factura se emite al cerrar la cuenta)
-      const direct = await confirmOrderNoFactura()
+    /**
+     * Sin mesa + `mesaPhase=sin_mesa`: la mesa virtual debe existir antes de confirmar.
+     * Si solo confiamos en `useEffect` + `mesaObj`, hay carrera (confirm rápido) y
+     * `effectiveMesaId` queda null → se dispara el flujo con factura inmediata y no se abre el modal de cuenta.
+     */
+    let mesaParaModal: Mesa | null = mesaObj
+    if (isSinMesaParaLlevarPos && tenant?.id && !mesaParaModal) {
+      try {
+        mesaParaModal = await mesasService.getOrCreateVirtualTakeawayMesa(tenant.id)
+        setMesaObj(mesaParaModal)
+      } catch (e) {
+        const message =
+          e instanceof Error ? e.message : 'No se pudo crear la mesa para llevar en el sistema.'
+        setFeedback({
+          type: 'error',
+          title: 'No se pudo preparar la cuenta para llevar',
+          message,
+        })
+        return
+      }
+    }
+
+    const mesaIdParaPedido =
+      mesaId ?? (isSinMesaParaLlevarPos ? mesaParaModal?.id ?? null : null)
+
+    if (mesaIdParaPedido) {
+      // Con mesa (física o virtual): cocina sin factura; la factura va al cerrar cuenta
+      const direct = await confirmOrderNoFactura({ mesaIdOverride: mesaIdParaPedido })
       if (direct) {
         if (direct.type === 'success') {
           if (isSinMesaParaLlevarPos) {
-            await handleAbrirDetalleMesa()
+            await handleAbrirDetalleMesa(mesaParaModal)
           } else {
             setMesaPedidoCocinaToastSession(MESA_PEDIDO_COCINA_TOAST_MESSAGE, MESA_PEDIDO_TOAST_MS)
             setMesaToast(MESA_PEDIDO_COCINA_TOAST_MESSAGE)
@@ -515,13 +540,14 @@ export default function POSView() {
     setResumenMesa(resumenes.find(r => r.mesa_id === mesa.id) ?? null)
   }
 
-  const handleAbrirDetalleMesa = async () => {
-    if (!mesaObj || !tenant?.id) return
+  const handleAbrirDetalleMesa = async (mesaExplicit?: Mesa | null) => {
+    const mesa = mesaExplicit ?? mesaObj
+    if (!mesa || !tenant?.id) return
     setDetalleMesaOpen(true)
     setDetalleMesaFeedback(null)
     setLoadingResumenMesa(true)
     try {
-      await reloadResumenMesa(mesaObj, tenant.id)
+      await reloadResumenMesa(mesa, tenant.id)
     } finally {
       setLoadingResumenMesa(false)
     }
@@ -862,7 +888,7 @@ export default function POSView() {
                         <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:items-center">
                           <button
                             type="button"
-                            onClick={handleAbrirDetalleMesa}
+                            onClick={() => void handleAbrirDetalleMesa()}
                             title="Abrir detalles y acciones de la mesa"
                             className={`inline-flex min-h-[40px] items-center justify-center gap-2 rounded-lg border px-2.5 py-2 text-xs font-medium transition sm:px-3 sm:text-sm ${
                               darkMode

@@ -68,7 +68,11 @@ export function useOrderConfirmation(mesaId?: string | null) {
   }
 
   const confirmOrderNoFactura = async (
-    options?: { forceTipo?: Exclude<NonNullable<typeof tipo>, 'delivery'> }
+    options?: {
+      forceTipo?: Exclude<NonNullable<typeof tipo>, 'delivery'>
+      /** Mesa física o virtual recién resuelta (evita race antes de que React actualice el estado). */
+      mesaIdOverride?: string | null
+    }
   ): Promise<FeedbackState | null> => {
     if (!usuario || !tenant || !tipo) {
       return showInlineError(
@@ -76,8 +80,10 @@ export function useOrderConfirmation(mesaId?: string | null) {
         'Volvé a iniciar sesión para poder registrar ventas.'
       )
     }
+    const mesaParaPedido =
+      options?.mesaIdOverride !== undefined ? options.mesaIdOverride : mesaId ?? null
     const tipoPedido = options?.forceTipo ?? tipo
-    const clientePedido = !mesaId && tenant.gestion_mesas ? null : cliente
+    const clientePedido = !mesaParaPedido && tenant.gestion_mesas ? null : cliente
     setIsProcessing(true)
     try {
       const total = getTotal()
@@ -96,9 +102,9 @@ export function useOrderConfirmation(mesaId?: string | null) {
         facturaALNombreDelCliente: false,
         facturaMostrarNombreYCI: false,
         puntosRetornoPct,
-        mesaId: mesaId ?? null,
-        suppressPuntosEnSuccessDetails: Boolean(!mesaId && tenant.gestion_mesas),
-        suppressPuntosGanadosSideEffects: Boolean(!mesaId && tenant.gestion_mesas),
+        mesaId: mesaParaPedido,
+        suppressPuntosEnSuccessDetails: Boolean(!mesaParaPedido && tenant.gestion_mesas),
+        suppressPuntosGanadosSideEffects: Boolean(!mesaParaPedido && tenant.gestion_mesas),
       })
 
       clearCart()
@@ -128,7 +134,8 @@ export function useOrderConfirmation(mesaId?: string | null) {
 
   const confirmOrderWithFacturaChoice = async (
     facturaALNombreDelCliente: boolean,
-    comprobanteNombreYCI: boolean
+    comprobanteNombreYCI: boolean,
+    options?: { mesaIdOverride?: string | null }
   ): Promise<FeedbackState | null> => {
     if (!usuario || !tenant || !tipo) {
       setFacturaPrefModalOpen(false)
@@ -140,8 +147,10 @@ export function useOrderConfirmation(mesaId?: string | null) {
     setIsProcessing(true)
 
     try {
+      const mesaParaPedido =
+        options?.mesaIdOverride !== undefined ? options.mesaIdOverride : mesaId ?? null
       const total = getTotal()
-      const clientePedido = !mesaId && tenant.gestion_mesas ? null : cliente
+      const clientePedido = !mesaParaPedido && tenant.gestion_mesas ? null : cliente
 
       const puntosRetornoPct = normalizePuntosRetornoPct(tenant.puntos_retorno_pct)
 
@@ -154,13 +163,13 @@ export function useOrderConfirmation(mesaId?: string | null) {
         tipo,
         items,
         total,
-        emitirFactura: !mesaId,
+        emitirFactura: !mesaParaPedido,
         facturaALNombreDelCliente,
         facturaMostrarNombreYCI: !facturaALNombreDelCliente && comprobanteNombreYCI,
         puntosRetornoPct,
-        mesaId: mesaId ?? null,
-        suppressPuntosEnSuccessDetails: Boolean(!mesaId && tenant.gestion_mesas),
-        suppressPuntosGanadosSideEffects: Boolean(!mesaId && tenant.gestion_mesas),
+        mesaId: mesaParaPedido,
+        suppressPuntosEnSuccessDetails: Boolean(!mesaParaPedido && tenant.gestion_mesas),
+        suppressPuntosGanadosSideEffects: Boolean(!mesaParaPedido && tenant.gestion_mesas),
       })
 
       setFacturaPrefModalOpen(false)

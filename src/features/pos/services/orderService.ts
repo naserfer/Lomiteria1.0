@@ -21,6 +21,11 @@ import { registrarCanjePuntos, registrarPuntosGanados } from '@/lib/db/puntos'
 import { broadcastMesasChanged } from '@/features/mesas/services/mesasRealtimeBroadcast'
 import { requestAgentPrint } from '@/features/impresion/agentPrintClient'
 import { getPrinterCopiasConfig } from '@/features/impresion/printerCopias'
+import {
+  esErrorNumeroFacturaDuplicado,
+  maxSecuenciaNumericaEnFacturas,
+  siguienteSecuenciaFactura,
+} from '@/features/facturacion/services/numeracionFactura'
 
 /** Convierte error de Supabase en Error con mensaje legible para el usuario y la consola */
 function toError(err: PostgrestError | Error, context: string): Error {
@@ -258,9 +263,6 @@ export const orderService = {
           .maybeSingle()
 
         if (config) {
-          const siguiente = (config.ultimo_numero ?? 0) + 1
-          const numeroFactura = `${config.establecimiento}-${config.punto_expedicion}-${String(siguiente).padStart(7, '0')}`
-
           const totalIva10 = Math.round((total / 1.1) * 0.1 * 100) / 100
           const totalExento = Math.round((total - totalIva10) * 100) / 100
 
@@ -290,27 +292,57 @@ export const orderService = {
             receptor_ci_impresion = null
           }
 
-          const { error: errFactura } = await supabase.from('facturas').insert({
-            tenant_id: tenantId,
-            pedido_id: pedido.id,
-            numero_factura: numeroFactura,
-            timbrado: config.timbrado,
-            cliente_id: clienteIdFactura,
-            receptor_nombre_impresion,
-            receptor_ruc_impresion,
-            receptor_ci_impresion,
-            total,
-            total_iva_10: totalIva10,
-            total_iva_5: 0,
-            total_exento: totalExento,
-          })
-
-          if (!errFactura) {
-            facturaEmitida = true
-            await supabase
+          for (let intento = 0; intento < 6 && !facturaEmitida; intento++) {
+            const maxEnFacturas = await maxSecuenciaNumericaEnFacturas(
+              supabase,
+              tenantId,
+              config.establecimiento,
+              config.punto_expedicion
+            )
+            const { data: cfgNumeracion, error: cfgNumeracionError } = await supabase
               .from('tenant_facturacion')
-              .update({ ultimo_numero: siguiente, updated_at: new Date().toISOString() })
+              .select('ultimo_numero')
               .eq('tenant_id', tenantId)
+              .maybeSingle()
+            if (cfgNumeracionError) {
+              console.warn(
+                'No se pudo releer numeración fiscal:',
+                cfgNumeracionError.message
+              )
+              break
+            }
+
+            const siguiente = siguienteSecuenciaFactura(cfgNumeracion?.ultimo_numero ?? 0, maxEnFacturas)
+            const numeroFactura = `${config.establecimiento}-${config.punto_expedicion}-${String(siguiente).padStart(7, '0')}`
+
+            const { error: errFactura } = await supabase.from('facturas').insert({
+              tenant_id: tenantId,
+              pedido_id: pedido.id,
+              numero_factura: numeroFactura,
+              timbrado: config.timbrado,
+              cliente_id: clienteIdFactura,
+              receptor_nombre_impresion,
+              receptor_ruc_impresion,
+              receptor_ci_impresion,
+              total,
+              total_iva_10: totalIva10,
+              total_iva_5: 0,
+              total_exento: totalExento,
+            })
+
+            if (!errFactura) {
+              facturaEmitida = true
+              await supabase
+                .from('tenant_facturacion')
+                .update({ ultimo_numero: siguiente, updated_at: new Date().toISOString() })
+                .eq('tenant_id', tenantId)
+              break
+            }
+
+            if (!esErrorNumeroFacturaDuplicado(errFactura)) {
+              console.warn('No se pudo emitir factura:', errFactura.message)
+              break
+            }
           }
         }
       } catch (facturaErr) {

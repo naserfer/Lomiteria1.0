@@ -8,6 +8,11 @@ import {
   clienteTieneRucParaFactura,
 } from '@/features/pos/utils/pos.utils'
 import { broadcastMesasChanged } from './mesasRealtimeBroadcast'
+import {
+  esErrorNumeroFacturaDuplicado,
+  maxSecuenciaNumericaEnFacturas,
+  siguienteSecuenciaFactura,
+} from '@/features/facturacion/services/numeracionFactura'
 
 interface CerrarCuentaMesaParams {
   tenantId: string
@@ -305,52 +310,86 @@ export const cerrarCuentaMesaService = {
           receptorRuc = RECEPTOR_FACTURA_GENERICO_RUC
         }
 
-        const siguiente = ultimoNumeroActual + 1
-        const numeroFactura = `${config.establecimiento}-${config.punto_expedicion}-${String(siguiente).padStart(7, '0')}`
         const total = Number(pedidoPrincipal.total ?? 0)
         const totalIva10 = Math.round((total / 1.1) * 0.1 * 100) / 100
         const totalExento = Math.round((total - totalIva10) * 100) / 100
 
-        const facturaPayload = {
-          tenant_id: params.tenantId,
-          pedido_id: pedidoPrincipal.id,
-          numero_factura: numeroFactura,
-          timbrado: config.timbrado,
-          cliente_id: clienteFacturaId,
-          receptor_nombre_impresion: receptorNombre,
-          receptor_ruc_impresion: receptorRuc,
-          receptor_ci_impresion: receptorCi,
-          total,
-          total_iva_10: totalIva10,
-          total_iva_5: 0,
-          total_exento: totalExento,
+        let siguienteEmitido = ultimoNumeroActual
+        let insertExitoso = false
+
+        for (let intento = 0; intento < 6 && !insertExitoso; intento++) {
+          const maxEnFacturas = await maxSecuenciaNumericaEnFacturas(
+            supabase,
+            params.tenantId,
+            config.establecimiento,
+            config.punto_expedicion
+          )
+          const { data: cfgNumeracion, error: cfgNumeracionError } = await supabase
+            .from('tenant_facturacion')
+            .select('ultimo_numero')
+            .eq('tenant_id', params.tenantId)
+            .maybeSingle()
+          if (cfgNumeracionError) {
+            throw new Error(`No se pudo releer la numeración fiscal: ${cfgNumeracionError.message}`)
+          }
+
+          const siguiente = siguienteSecuenciaFactura(cfgNumeracion?.ultimo_numero ?? 0, maxEnFacturas)
+          const numeroFactura = `${config.establecimiento}-${config.punto_expedicion}-${String(siguiente).padStart(7, '0')}`
+
+          const facturaPayload = {
+            tenant_id: params.tenantId,
+            pedido_id: pedidoPrincipal.id,
+            numero_factura: numeroFactura,
+            timbrado: config.timbrado,
+            cliente_id: clienteFacturaId,
+            receptor_nombre_impresion: receptorNombre,
+            receptor_ruc_impresion: receptorRuc,
+            receptor_ci_impresion: receptorCi,
+            total,
+            total_iva_10: totalIva10,
+            total_iva_5: 0,
+            total_exento: totalExento,
+          }
+
+          let { error: facturaInsertError } = await supabase.from('facturas').insert(
+            metodoCobroDisponible
+              ? { ...facturaPayload, metodo_cobro: params.metodoCobro ?? null }
+              : facturaPayload
+          )
+
+          if (facturaInsertError?.message?.toLowerCase().includes('metodo_cobro')) {
+            metodoCobroDisponible = false
+            const fallback = await supabase.from('facturas').insert(facturaPayload)
+            facturaInsertError = fallback.error
+          }
+
+          if (!facturaInsertError) {
+            const { error: updateConfigError } = await supabase
+              .from('tenant_facturacion')
+              .update({ ultimo_numero: siguiente, updated_at: new Date().toISOString() })
+              .eq('tenant_id', params.tenantId)
+
+            if (updateConfigError) {
+              throw new Error(`No se pudo actualizar la numeración fiscal: ${updateConfigError.message}`)
+            }
+
+            siguienteEmitido = siguiente
+            insertExitoso = true
+            break
+          }
+
+          if (!esErrorNumeroFacturaDuplicado(facturaInsertError)) {
+            throw new Error(`No se pudo emitir la factura consolidada: ${facturaInsertError.message}`)
+          }
         }
 
-        let { error: facturaInsertError } = await supabase.from('facturas').insert(
-          metodoCobroDisponible
-            ? { ...facturaPayload, metodo_cobro: params.metodoCobro ?? null }
-            : facturaPayload
-        )
-
-        // Compatibilidad temporal: si la columna aún no existe en BD, insertar sin método.
-        if (facturaInsertError?.message?.toLowerCase().includes('metodo_cobro')) {
-          metodoCobroDisponible = false
-          const fallback = await supabase.from('facturas').insert(facturaPayload)
-          facturaInsertError = fallback.error
+        if (!insertExitoso) {
+          throw new Error(
+            'No se pudo emitir la factura consolidada: numeración ocupada (reintentá en unos segundos).'
+          )
         }
 
-        if (facturaInsertError) throw new Error(`No se pudo emitir la factura consolidada: ${facturaInsertError.message}`)
-
-        const { error: updateConfigError } = await supabase
-          .from('tenant_facturacion')
-          .update({ ultimo_numero: siguiente, updated_at: new Date().toISOString() })
-          .eq('tenant_id', params.tenantId)
-
-        if (updateConfigError) {
-          throw new Error(`No se pudo actualizar la numeración fiscal: ${updateConfigError.message}`)
-        }
-
-        ultimoNumeroActual = siguiente
+        ultimoNumeroActual = siguienteEmitido
         facturaEmitidaAhora = true
       }
     }
