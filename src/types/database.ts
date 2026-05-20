@@ -39,6 +39,7 @@ export interface Cliente {
 export interface Pedido {
   id: string
   numero_pedido: number
+  pedido_ciclo: number
   cliente_id?: string
   tipo: 'delivery' | 'local' | 'takeaway'
   estado: 'pendiente' | 'preparando' | 'listo' | 'entregado' | 'cancelado'

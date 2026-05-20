@@ -8,7 +8,7 @@
 -- Qué hace:
 --   - Borra todas las sesiones_caja del tenant
 --   - Borra todos los pedidos del tenant (en cascada: items_pedido, facturas)
---   - Reinicia el contador de número de pedido (próximo pedido será #1)
+--   - Reinicia el contador de pedidos y el ciclo (próximo pedido será ciclo 1, #1)
 --
 -- Nota: Los puntos ya acreditados en clientes (puntos_totales) y las filas
 -- en transacciones_puntos NO se revierten; quedan con pedido_id NULL.
@@ -30,12 +30,14 @@ BEGIN
   DELETE FROM pedidos WHERE tenant_id = v_tenant_id;
   GET DIAGNOSTICS v_deleted_pedidos = ROW_COUNT;
 
-  -- 3. Reiniciar el contador de número de pedido para que el próximo sea #1
+  -- 3. Reiniciar contador y ciclo para que el próximo sea ciclo 1, pedido #1
   UPDATE tenant_pedido_counters
-  SET ultimo_numero = 0, updated_at = NOW()
+  SET ultimo_numero = 0,
+      ciclo_actual = 1,
+      updated_at = NOW()
   WHERE tenant_id = v_tenant_id;
 
-  RAISE NOTICE 'Listo. Tenant %: % pedidos eliminados; sesiones_caja eliminadas; contador reiniciado a 0.', v_tenant_id, v_deleted_pedidos;
+  RAISE NOTICE 'Listo. Tenant %: % pedidos eliminados; sesiones_caja eliminadas; contador reiniciado (ciclo=1, ultimo_numero=0).', v_tenant_id, v_deleted_pedidos;
 END $$;
 
 -- Opcional: verificar que no queden pedidos ni sesiones para ese tenant

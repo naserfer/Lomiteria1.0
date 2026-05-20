@@ -31,6 +31,11 @@ const TIPO_LABEL: Record<string, string> = {
   para_llevar: 'Para llevar',
 }
 
+function formatNumeroPedido(numero: number, ciclo: number) {
+  if (ciclo <= 1) return `#${numero}`
+  return `#${numero} · C${ciclo}`
+}
+
 export function PedidoDetailPanel({
   pedido,
   open,
@@ -123,7 +128,7 @@ export function PedidoDetailPanel({
         <div className={`px-4 py-3 border-b flex items-start justify-between ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
           <div>
             <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Detalle del pedido</p>
-            <h3 className="text-lg font-black">#{pedido.numero_pedido}</h3>
+            <h3 className="text-lg font-black">{formatNumeroPedido(pedido.numero_pedido, pedido.pedido_ciclo)}</h3>
           </div>
           <button
             type="button"

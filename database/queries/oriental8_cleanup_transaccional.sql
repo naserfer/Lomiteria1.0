@@ -11,7 +11,7 @@
 --   unions/reservas de mesas para el tenant, sesiones de caja del tenant.
 --
 -- Post-acción autorizada por negocio (Oriental 8):
---   - tenant_pedido_counters.ultimo_numero → 0
+--   - tenant_pedido_counters.ciclo_actual → 1 y ultimo_numero → 0
 --   - tenant_facturacion.ultimo_numero → 0
 --   - ingredientes.stock_actual → 0 (solo el stock numérico; NO se borran filas de materias primas)
 --
@@ -95,12 +95,13 @@ WHERE s.tenant_id = '565c0876-2235-4e7c-bb54-89c466fe4583'::uuid;
 
 UPDATE public.tenant_pedido_counters
 SET ultimo_numero = 0,
+    ciclo_actual = 1,
     updated_at = now()
 WHERE tenant_id = '565c0876-2235-4e7c-bb54-89c466fe4583'::uuid;
 
 -- Si el tenant aún no tuviera fila (raro), la creamos.
-INSERT INTO public.tenant_pedido_counters (tenant_id, ultimo_numero, updated_at)
-SELECT '565c0876-2235-4e7c-bb54-89c466fe4583'::uuid, 0, now()
+INSERT INTO public.tenant_pedido_counters (tenant_id, ultimo_numero, ciclo_actual, updated_at)
+SELECT '565c0876-2235-4e7c-bb54-89c466fe4583'::uuid, 0, 1, now()
 WHERE NOT EXISTS (
   SELECT 1
   FROM public.tenant_pedido_counters tpc
@@ -186,7 +187,7 @@ ORDER BY tabla;
 WITH constants AS (SELECT '565c0876-2235-4e7c-bb54-89c466fe4583'::uuid AS tenant_id)
 SELECT 'POST_counters_pedido' AS chequeo,
        tpc.ultimo_numero::bigint AS valor,
-       NULL::text AS detalle
+       concat('ciclo_actual=', tpc.ciclo_actual)::text AS detalle
 FROM public.tenant_pedido_counters tpc
 JOIN constants c ON tpc.tenant_id = c.tenant_id;
 

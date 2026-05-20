@@ -211,6 +211,7 @@ CREATE TABLE IF NOT EXISTS pedidos (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   numero_pedido INTEGER NOT NULL,
+  pedido_ciclo INTEGER NOT NULL DEFAULT 1,
   cliente_id UUID REFERENCES clientes(id) ON DELETE SET NULL,
   usuario_id UUID REFERENCES usuarios(id) ON DELETE SET NULL,
   empleado_id UUID REFERENCES empleados(id) ON DELETE SET NULL,
@@ -222,11 +223,12 @@ CREATE TABLE IF NOT EXISTS pedidos (
   notas TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(tenant_id, numero_pedido)
+  UNIQUE(tenant_id, pedido_ciclo, numero_pedido)
 );
 
 COMMENT ON TABLE pedidos IS 'Pedidos por tenant';
-COMMENT ON COLUMN pedidos.numero_pedido IS 'Número secuencial por tenant';
+COMMENT ON COLUMN pedidos.numero_pedido IS 'Número secuencial visible por tenant (rango 1..999)';
+COMMENT ON COLUMN pedidos.pedido_ciclo IS 'Ciclo de numeración por tenant. Se incrementa cuando numero_pedido pasa de 999 a 1';
 COMMENT ON COLUMN pedidos.estado IS 'Flujo del pedido: pendiente → en_preparacion → listo → entregado (o cancelado)';
 COMMENT ON COLUMN pedidos.estado_pedido IS 'Estado contable: EDIT=edición/borrador, FACT=facturado/confirmado, ANUL=anulado';
 COMMENT ON COLUMN pedidos.empleado_id IS 'Empleado cajero que tomó el pedido (para delivery desde vehículo)';
@@ -242,21 +244,61 @@ CREATE INDEX IF NOT EXISTS idx_pedidos_fecha ON pedidos(tenant_id, created_at DE
 CREATE TABLE IF NOT EXISTS tenant_pedido_counters (
   tenant_id UUID PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
   ultimo_numero INTEGER NOT NULL DEFAULT 0,
+  ciclo_actual INTEGER NOT NULL DEFAULT 1,
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 COMMENT ON TABLE tenant_pedido_counters IS 'Lleva el correlativo de pedidos por tenant';
 
 -- Inicializar contadores para tenants existentes
-INSERT INTO tenant_pedido_counters (tenant_id, ultimo_numero)
-SELECT tenant_id, COALESCE(MAX(numero_pedido), 0) AS ultimo_numero
+INSERT INTO tenant_pedido_counters (tenant_id, ultimo_numero, ciclo_actual)
+SELECT tenant_id, COALESCE(MAX(numero_pedido), 0) AS ultimo_numero, COALESCE(MAX(pedido_ciclo), 1) AS ciclo_actual
 FROM pedidos
 GROUP BY tenant_id
 ON CONFLICT (tenant_id) DO UPDATE
 SET ultimo_numero = EXCLUDED.ultimo_numero,
+    ciclo_actual = EXCLUDED.ciclo_actual,
     updated_at = NOW();
 
--- Función: obtener siguiente número de pedido por tenant
+-- Función interna: obtener siguiente numeración de pedido por tenant (numero + ciclo)
+CREATE OR REPLACE FUNCTION obtener_siguiente_numeracion_pedido(p_tenant_id UUID)
+RETURNS TABLE(numero_pedido INTEGER, pedido_ciclo INTEGER)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_ultimo_numero INTEGER;
+  v_ciclo_actual INTEGER;
+BEGIN
+  INSERT INTO tenant_pedido_counters (tenant_id, ultimo_numero, ciclo_actual, updated_at)
+  VALUES (p_tenant_id, 0, 1, NOW())
+  ON CONFLICT (tenant_id) DO NOTHING;
+
+  SELECT tpc.ultimo_numero, tpc.ciclo_actual
+  INTO v_ultimo_numero, v_ciclo_actual
+  FROM tenant_pedido_counters tpc
+  WHERE tpc.tenant_id = p_tenant_id
+  FOR UPDATE;
+
+  IF v_ultimo_numero >= 999 THEN
+    v_ultimo_numero := 1;
+    v_ciclo_actual := v_ciclo_actual + 1;
+  ELSE
+    v_ultimo_numero := v_ultimo_numero + 1;
+  END IF;
+
+  UPDATE tenant_pedido_counters
+  SET ultimo_numero = v_ultimo_numero,
+      ciclo_actual = v_ciclo_actual,
+      updated_at = NOW()
+  WHERE tenant_id = p_tenant_id;
+
+  RETURN QUERY SELECT v_ultimo_numero, v_ciclo_actual;
+END;
+$$;
+
+-- Función pública compatible: devuelve solo numero_pedido
 CREATE OR REPLACE FUNCTION obtener_siguiente_numero_pedido(p_tenant_id UUID)
 RETURNS INTEGER
 LANGUAGE plpgsql
@@ -264,28 +306,34 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  nuevo_numero INTEGER;
+  v_numero INTEGER;
 BEGIN
-  INSERT INTO tenant_pedido_counters (tenant_id, ultimo_numero)
-  VALUES (p_tenant_id, 1)
-  ON CONFLICT (tenant_id) DO UPDATE
-    SET ultimo_numero = CASE
-      WHEN tenant_pedido_counters.ultimo_numero >= 999 THEN 1
-      ELSE tenant_pedido_counters.ultimo_numero + 1
-    END,
-    updated_at = NOW()
-  RETURNING tenant_pedido_counters.ultimo_numero INTO nuevo_numero;
+  SELECT n.numero_pedido
+  INTO v_numero
+  FROM obtener_siguiente_numeracion_pedido(p_tenant_id) n;
 
-  RETURN nuevo_numero;
+  RETURN v_numero;
 END;
 $$;
 
 -- Trigger: asignar número de pedido automáticamente
 CREATE OR REPLACE FUNCTION asignar_numero_pedido()
 RETURNS TRIGGER AS $$
+DECLARE
+  v_numero INTEGER;
+  v_ciclo INTEGER;
 BEGIN
+  IF NEW.numero_pedido IS NOT NULL AND NEW.pedido_ciclo IS NULL THEN
+    RAISE EXCEPTION 'pedido_ciclo es obligatorio cuando se envía numero_pedido manualmente';
+  END IF;
+
   IF NEW.numero_pedido IS NULL THEN
-    NEW.numero_pedido := obtener_siguiente_numero_pedido(NEW.tenant_id);
+    SELECT n.numero_pedido, n.pedido_ciclo
+    INTO v_numero, v_ciclo
+    FROM obtener_siguiente_numeracion_pedido(NEW.tenant_id) n;
+
+    NEW.numero_pedido := v_numero;
+    NEW.pedido_ciclo := v_ciclo;
   END IF;
   RETURN NEW;
 END;
@@ -963,6 +1011,7 @@ CREATE TABLE IF NOT EXISTS pedidos (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   numero_pedido INTEGER NOT NULL,
+  pedido_ciclo INTEGER NOT NULL DEFAULT 1,
   cliente_id UUID REFERENCES clientes(id) ON DELETE SET NULL,
   usuario_id UUID REFERENCES usuarios(id) ON DELETE SET NULL,
   empleado_id UUID REFERENCES empleados(id) ON DELETE SET NULL,
@@ -974,11 +1023,12 @@ CREATE TABLE IF NOT EXISTS pedidos (
   notas TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(tenant_id, numero_pedido)
+  UNIQUE(tenant_id, pedido_ciclo, numero_pedido)
 );
 
 COMMENT ON TABLE pedidos IS 'Pedidos por tenant';
-COMMENT ON COLUMN pedidos.numero_pedido IS 'Número secuencial por tenant';
+COMMENT ON COLUMN pedidos.numero_pedido IS 'Número secuencial visible por tenant (rango 1..999)';
+COMMENT ON COLUMN pedidos.pedido_ciclo IS 'Ciclo de numeración por tenant. Se incrementa cuando numero_pedido pasa de 999 a 1';
 COMMENT ON COLUMN pedidos.estado IS 'Flujo del pedido: pendiente → en_preparacion → listo → entregado (o cancelado)';
 COMMENT ON COLUMN pedidos.estado_pedido IS 'Estado contable: EDIT=edición/borrador, FACT=facturado/confirmado, ANUL=anulado';
 COMMENT ON COLUMN pedidos.empleado_id IS 'Empleado cajero que tomó el pedido (para delivery desde vehículo)';
@@ -994,21 +1044,61 @@ CREATE INDEX IF NOT EXISTS idx_pedidos_fecha ON pedidos(tenant_id, created_at DE
 CREATE TABLE IF NOT EXISTS tenant_pedido_counters (
   tenant_id UUID PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
   ultimo_numero INTEGER NOT NULL DEFAULT 0,
+  ciclo_actual INTEGER NOT NULL DEFAULT 1,
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 COMMENT ON TABLE tenant_pedido_counters IS 'Lleva el correlativo de pedidos por tenant';
 
 -- Inicializar contadores para tenants existentes
-INSERT INTO tenant_pedido_counters (tenant_id, ultimo_numero)
-SELECT tenant_id, COALESCE(MAX(numero_pedido), 0) AS ultimo_numero
+INSERT INTO tenant_pedido_counters (tenant_id, ultimo_numero, ciclo_actual)
+SELECT tenant_id, COALESCE(MAX(numero_pedido), 0) AS ultimo_numero, COALESCE(MAX(pedido_ciclo), 1) AS ciclo_actual
 FROM pedidos
 GROUP BY tenant_id
 ON CONFLICT (tenant_id) DO UPDATE
 SET ultimo_numero = EXCLUDED.ultimo_numero,
+    ciclo_actual = EXCLUDED.ciclo_actual,
     updated_at = NOW();
 
--- Función: obtener siguiente número de pedido por tenant
+-- Función interna: obtener siguiente numeración de pedido por tenant (numero + ciclo)
+CREATE OR REPLACE FUNCTION obtener_siguiente_numeracion_pedido(p_tenant_id UUID)
+RETURNS TABLE(numero_pedido INTEGER, pedido_ciclo INTEGER)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_ultimo_numero INTEGER;
+  v_ciclo_actual INTEGER;
+BEGIN
+  INSERT INTO tenant_pedido_counters (tenant_id, ultimo_numero, ciclo_actual, updated_at)
+  VALUES (p_tenant_id, 0, 1, NOW())
+  ON CONFLICT (tenant_id) DO NOTHING;
+
+  SELECT tpc.ultimo_numero, tpc.ciclo_actual
+  INTO v_ultimo_numero, v_ciclo_actual
+  FROM tenant_pedido_counters tpc
+  WHERE tpc.tenant_id = p_tenant_id
+  FOR UPDATE;
+
+  IF v_ultimo_numero >= 999 THEN
+    v_ultimo_numero := 1;
+    v_ciclo_actual := v_ciclo_actual + 1;
+  ELSE
+    v_ultimo_numero := v_ultimo_numero + 1;
+  END IF;
+
+  UPDATE tenant_pedido_counters
+  SET ultimo_numero = v_ultimo_numero,
+      ciclo_actual = v_ciclo_actual,
+      updated_at = NOW()
+  WHERE tenant_id = p_tenant_id;
+
+  RETURN QUERY SELECT v_ultimo_numero, v_ciclo_actual;
+END;
+$$;
+
+-- Función pública compatible: devuelve solo numero_pedido
 CREATE OR REPLACE FUNCTION obtener_siguiente_numero_pedido(p_tenant_id UUID)
 RETURNS INTEGER
 LANGUAGE plpgsql
@@ -1016,28 +1106,34 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  nuevo_numero INTEGER;
+  v_numero INTEGER;
 BEGIN
-  INSERT INTO tenant_pedido_counters (tenant_id, ultimo_numero)
-  VALUES (p_tenant_id, 1)
-  ON CONFLICT (tenant_id) DO UPDATE
-    SET ultimo_numero = CASE
-      WHEN tenant_pedido_counters.ultimo_numero >= 999 THEN 1
-      ELSE tenant_pedido_counters.ultimo_numero + 1
-    END,
-    updated_at = NOW()
-  RETURNING tenant_pedido_counters.ultimo_numero INTO nuevo_numero;
+  SELECT n.numero_pedido
+  INTO v_numero
+  FROM obtener_siguiente_numeracion_pedido(p_tenant_id) n;
 
-  RETURN nuevo_numero;
+  RETURN v_numero;
 END;
 $$;
 
 -- Trigger: asignar número de pedido automáticamente
 CREATE OR REPLACE FUNCTION asignar_numero_pedido()
 RETURNS TRIGGER AS $$
+DECLARE
+  v_numero INTEGER;
+  v_ciclo INTEGER;
 BEGIN
+  IF NEW.numero_pedido IS NOT NULL AND NEW.pedido_ciclo IS NULL THEN
+    RAISE EXCEPTION 'pedido_ciclo es obligatorio cuando se envía numero_pedido manualmente';
+  END IF;
+
   IF NEW.numero_pedido IS NULL THEN
-    NEW.numero_pedido := obtener_siguiente_numero_pedido(NEW.tenant_id);
+    SELECT n.numero_pedido, n.pedido_ciclo
+    INTO v_numero, v_ciclo
+    FROM obtener_siguiente_numeracion_pedido(NEW.tenant_id) n;
+
+    NEW.numero_pedido := v_numero;
+    NEW.pedido_ciclo := v_ciclo;
   END IF;
   RETURN NEW;
 END;

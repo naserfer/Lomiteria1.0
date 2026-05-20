@@ -30,6 +30,11 @@ function formatFecha(iso: string) {
   })
 }
 
+function formatNumeroPedido(numero: number, ciclo: number) {
+  if (ciclo <= 1) return `#${numero}`
+  return `#${numero} · C${ciclo}`
+}
+
 export function HistorialPedidosView() {
   const { tenant, darkMode, isAdmin, isCajero, isRepartidor } = useTenant()
   const {
@@ -271,7 +276,9 @@ export function HistorialPedidosView() {
               }`}
             >
               <div className="flex items-start justify-between gap-2">
-                <span className="font-semibold text-gray-900 dark:text-white">#{p.numero_pedido}</span>
+                <span className="font-semibold text-gray-900 dark:text-white">
+                  {formatNumeroPedido(p.numero_pedido, p.pedido_ciclo)}
+                </span>
                 {p.estado_pedido === 'ANUL' ? (
                   <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800 dark:bg-red-900/40 dark:text-red-400">
                     <XCircle className="h-3 w-3" />
@@ -369,7 +376,7 @@ export function HistorialPedidosView() {
                     className={`${darkMode ? 'hover:bg-gray-800/50' : 'hover:bg-gray-50'} cursor-pointer`}
                   >
                     <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">
-                      #{p.numero_pedido}
+                      {formatNumeroPedido(p.numero_pedido, p.pedido_ciclo)}
                     </td>
                     <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
                       {formatFecha(p.created_at)}
