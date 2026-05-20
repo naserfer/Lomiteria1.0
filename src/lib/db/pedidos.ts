@@ -11,6 +11,7 @@ const PEDIDO_SELECT_FIELDS = `
   id,
   tenant_id,
   numero_pedido,
+  pedido_ciclo,
   cliente_id,
   usuario_id,
   tipo,
