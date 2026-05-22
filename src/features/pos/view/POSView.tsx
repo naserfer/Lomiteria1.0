@@ -634,6 +634,23 @@ export default function POSView() {
     }
   }
 
+  const handleEliminarItemDetalleMesa = async (itemPedidoId: string) => {
+    if (!tenant?.id || !mesaObj) return
+    try {
+      await mesasService.eliminarItemPedido({
+        tenantId: tenant.id,
+        itemPedidoId,
+        usuarioId: usuario?.id ?? null,
+      })
+      setDetalleMesaFeedback({ type: 'success', message: 'Producto quitado de la cuenta.' })
+      await reloadResumenMesa(mesaObj, tenant.id)
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'No se pudo quitar el producto.'
+      setDetalleMesaFeedback({ type: 'error', message: msg })
+      throw e
+    }
+  }
+
   const onCerrarCuentaFromModal = async (_mesa: Mesa, metodo?: 'tarjeta' | 'efectivo') => {
     setDetalleMesaOpen(false)
     await handleCerrarCuentaMesa(metodo)
@@ -775,6 +792,44 @@ export default function POSView() {
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'No se pudo cambiar el producto.'
       setParaLlevarDetalleFeedback({ type: 'error', message: msg })
+    }
+  }
+
+  const handleEliminarItemParaLlevar = async (itemPedidoId: string) => {
+    if (!tenant?.id || !paraLlevarPedidoId) return
+    try {
+      await mesasService.eliminarItemPedido({
+        tenantId: tenant.id,
+        itemPedidoId,
+        usuarioId: usuario?.id ?? null,
+      })
+      setParaLlevarDetalleFeedback({ type: 'success', message: 'Producto quitado de la cuenta.' })
+      await reloadResumenParaLlevar(tenant.id, paraLlevarPedidoId)
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'No se pudo quitar el producto.'
+      setParaLlevarDetalleFeedback({ type: 'error', message: msg })
+      throw e
+    }
+  }
+
+  const handleEliminarItemCuentaEditablePos = async (itemPedidoId: string) => {
+    if (!tenant?.id) return
+    try {
+      await mesasService.eliminarItemPedido({
+        tenantId: tenant.id,
+        itemPedidoId,
+        usuarioId: usuario?.id ?? null,
+      })
+      setDetalleMesaFeedback({ type: 'success', message: 'Producto quitado de la cuenta.' })
+      if (mesaObj) {
+        await reloadResumenMesa(mesaObj, tenant.id)
+      } else if (paraLlevarPedidoId) {
+        await reloadResumenParaLlevar(tenant.id, paraLlevarPedidoId)
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'No se pudo quitar el producto.'
+      setDetalleMesaFeedback({ type: 'error', message: msg })
+      throw e
     }
   }
 
@@ -1350,6 +1405,7 @@ export default function POSView() {
             onAddProductoManual={handleAddProductoManualModal}
             addingProductoManual={addingManualItemInDetalle}
             onReemplazarProductoCatalogo={handleReemplazarProductoDetalleMesa}
+            onEliminarItem={handleEliminarItemCuentaEditablePos}
             showCerrarCuenta
             accountHeaderEyebrow="Cuenta para llevar"
             accountHeaderTitle={
@@ -1377,6 +1433,7 @@ export default function POSView() {
             onAddProductoManual={handleAddProductoManualModal}
             addingProductoManual={addingManualItemInDetalle}
             onReemplazarProductoCatalogo={handleReemplazarProductoDetalleMesa}
+            onEliminarItem={handleEliminarItemDetalleMesa}
             showOperationalActions={false}
             showSplitActions={false}
             showCerrarCuenta
@@ -1400,6 +1457,7 @@ export default function POSView() {
           onAddProductoManual={handleAddProductoManualParaLlevar}
           addingProductoManual={addingManualParaLlevar}
           onReemplazarProductoCatalogo={handleReemplazarProductoParaLlevarDetalle}
+          onEliminarItem={handleEliminarItemParaLlevar}
           showCerrarCuenta
           accountHeaderEyebrow="Cuenta para llevar"
           accountHeaderTitle={

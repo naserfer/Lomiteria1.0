@@ -323,6 +323,32 @@ export function MesaPickerScreen({ tenantId, onSinMesa }: MesaPickerScreenProps)
     [tenantId, selectedMesaId, fetchMesas]
   )
 
+  const handleEliminarItem = useCallback(
+    async (itemPedidoId: string) => {
+      if (!selectedMesaId) return
+      try {
+        await mesasService.eliminarItemPedido({
+          tenantId,
+          itemPedidoId,
+          usuarioId: usuario?.id ?? null,
+        })
+        setMesaFeedbackById((prev) => ({
+          ...prev,
+          [selectedMesaId]: { type: 'success', message: 'Producto quitado de la cuenta.' },
+        }))
+        await fetchMesas(true)
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : 'No se pudo quitar el producto.'
+        setMesaFeedbackById((prev) => ({
+          ...prev,
+          [selectedMesaId]: { type: 'error', message: msg },
+        }))
+        throw e
+      }
+    },
+    [tenantId, selectedMesaId, usuario?.id, fetchMesas]
+  )
+
   const isBusy = navigatingTo !== null
 
   return (
@@ -554,6 +580,7 @@ export function MesaPickerScreen({ tenantId, onSinMesa }: MesaPickerScreenProps)
         onAddProductoManual={handleAddProductoManual}
         addingProductoManual={selectedMesaId ? addingManualItemMesaId === selectedMesaId : false}
         onReemplazarProductoCatalogo={handleReemplazarProductoCatalogo}
+        onEliminarItem={handleEliminarItem}
         showOperationalActions={false}
         showSplitActions={false}
       />

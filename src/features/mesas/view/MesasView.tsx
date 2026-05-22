@@ -642,6 +642,26 @@ export default function MesasView() {
     [tenant?.id, selectedMesa, loadData, setMesaFeedback]
   )
 
+  const handleEliminarItem = useCallback(
+    async (itemPedidoId: string) => {
+      if (!tenant?.id || !selectedMesa) return
+      try {
+        await mesasService.eliminarItemPedido({
+          tenantId: tenant.id,
+          itemPedidoId,
+          usuarioId: usuario?.id ?? null,
+        })
+        setMesaFeedback(selectedMesa.id, 'success', 'Producto quitado de la cuenta.')
+        await loadData()
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : 'No se pudo quitar el producto.'
+        setMesaFeedback(selectedMesa.id, 'error', msg)
+        throw e
+      }
+    },
+    [tenant?.id, selectedMesa, usuario?.id, loadData, setMesaFeedback]
+  )
+
   const handleStartEdit = (mesa: Mesa) => {
     setConfirmDeleteMesaId(null)
     setEditingMesaId(mesa.id)
@@ -1086,6 +1106,7 @@ export default function MesasView() {
               onAddProductoManual={handleAddProductoManual}
               addingProductoManual={selectedMesa ? addingManualItemMesaId === selectedMesa.id : false}
               onReemplazarProductoCatalogo={handleReemplazarProductoCatalogo}
+              onEliminarItem={handleEliminarItem}
               showCerrarCuenta
               accountHeaderEyebrow="Cuenta para llevar"
               accountHeaderTitle={
@@ -1125,6 +1146,7 @@ export default function MesasView() {
               onAddProductoManual={handleAddProductoManual}
               addingProductoManual={selectedMesa ? addingManualItemMesaId === selectedMesa.id : false}
               onReemplazarProductoCatalogo={handleReemplazarProductoCatalogo}
+              onEliminarItem={handleEliminarItem}
             />
           )}
 

@@ -210,6 +210,20 @@ export const cerrarCuentaMesaService = {
       pedidoPrincipal = { ...pedidoPrincipal, total: totalConsolidado }
     }
 
+    const pedidoIdsSesion = pedidosActivos.map((p) => p.id)
+    const { data: itemsSesion, error: itemsSesionError } = await supabase
+      .from('items_pedido')
+      .select('id')
+      .in('pedido_id', pedidoIdsSesion)
+      .limit(1)
+
+    if (itemsSesionError) {
+      throw new Error(`No se pudo validar ítems de la cuenta: ${itemsSesionError.message}`)
+    }
+    if (!itemsSesion?.length) {
+      throw new Error('No hay productos en la cuenta para cerrar. Agregá ítems antes de cobrar.')
+    }
+
     const { data: config, error: configError } = await supabase
       .from('tenant_facturacion')
       .select('timbrado, establecimiento, punto_expedicion, ultimo_numero')

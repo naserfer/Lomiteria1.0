@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/client'
 import { requestAgentPrint } from '@/features/impresion/agentPrintClient'
+import { revertirIngredientesPorItemPedido, type ItemPedidoForRevert } from '@/lib/inventory/consumption'
 import { broadcastMesasChanged, broadcastReservasChanged } from './mesasRealtimeBroadcast'
 import type { EstadoMesa, Mesa, MesaReserva, MesaUnion, MesaUnionItem, PedidoDivision, ResumenMesa } from '../types/mesas.types'
 
@@ -1327,6 +1328,149 @@ export const mesasService = {
     }
 
     enqueueReprintCocinaTrasEdicionDetalle(itemRow.pedido_id, params.tenantId)
+
+    return { pedidoId: itemRow.pedido_id }
+  },
+
+  /**
+   * Elimina una línea del pedido (detalle antes de cerrar cuenta).
+   * Revierte inventario de esa línea, recalcula total y encola reimpresión cocina.
+   */
+  async eliminarItemPedido(params: {
+    tenantId: string
+    itemPedidoId: string
+    usuarioId?: string | null
+  }): Promise<{ pedidoId: string }> {
+    const supabase = createClient()
+
+    const { data: itemRow, error: itemError } = await supabase
+      .from('items_pedido')
+      .select(`
+        id,
+        pedido_id,
+        producto_id,
+        producto_nombre,
+        cantidad,
+        precio_unitario,
+        subtotal,
+        notas,
+        pedidos!inner (
+          id,
+          tenant_id,
+          numero_pedido,
+          total,
+          estado,
+          estado_pedido,
+          mesa_id
+        ),
+        items_pedido_customizacion (
+          tipo,
+          precio_extra,
+          cantidad_original,
+          cantidad_ajustada,
+          ingredientes:ingrediente_id (
+            slug,
+            nombre
+          )
+        )
+      `)
+      .eq('id', params.itemPedidoId)
+      .eq('pedidos.tenant_id', params.tenantId)
+      .single()
+
+    if (itemError || !itemRow) {
+      throw new Error('No se encontró el ítem del pedido o no pertenece a este local.')
+    }
+
+    const pedido = Array.isArray(itemRow.pedidos) ? itemRow.pedidos[0] : itemRow.pedidos
+    if (!pedido) throw new Error('No se pudo validar el pedido del ítem.')
+    if (pedido.estado === 'cancelado') throw new Error('No se puede editar un pedido cancelado.')
+    if (!['EDIT', 'FACT'].includes(pedido.estado_pedido)) {
+      throw new Error('Solo se pueden editar pedidos abiertos o confirmados.')
+    }
+
+    if (itemRow.producto_id) {
+      const { data: comboProbe, error: comboErr } = await supabase
+        .from('combo_items')
+        .select('id')
+        .eq('combo_id', itemRow.producto_id)
+        .limit(1)
+
+      if (comboErr) {
+        throw new Error(`No se pudo validar el producto: ${comboErr.message}`)
+      }
+      if (comboProbe && comboProbe.length > 0) {
+        throw new Error(
+          'Los combos no se pueden quitar desde el detalle de cuenta. Usá el punto de venta.'
+        )
+      }
+    }
+
+    const itemForRevert: ItemPedidoForRevert = {
+      id: itemRow.id,
+      producto_id: itemRow.producto_id,
+      producto_nombre: itemRow.producto_nombre,
+      cantidad: itemRow.cantidad,
+      precio_unitario: itemRow.precio_unitario,
+      subtotal: itemRow.subtotal,
+      notas: itemRow.notas,
+      items_pedido_customizacion: (itemRow.items_pedido_customizacion ?? []) as ItemPedidoForRevert['items_pedido_customizacion'],
+    }
+
+    const invResult = await revertirIngredientesPorItemPedido({
+      tenantId: params.tenantId,
+      item: itemForRevert,
+      pedidoId: itemRow.pedido_id,
+      pedidoNumero: pedido.numero_pedido,
+      usuarioId: params.usuarioId ?? null,
+    })
+    if (!invResult.success) {
+      throw new Error(
+        invResult.errores[0] ?? 'No se pudo revertir el inventario de esta línea.'
+      )
+    }
+
+    const { error: delCustError } = await supabase
+      .from('items_pedido_customizacion')
+      .delete()
+      .eq('item_pedido_id', params.itemPedidoId)
+
+    if (delCustError) {
+      throw new Error(`No se pudieron quitar modificaciones del ítem: ${delCustError.message}`)
+    }
+
+    const { error: delItemError } = await supabase
+      .from('items_pedido')
+      .delete()
+      .eq('id', params.itemPedidoId)
+
+    if (delItemError) {
+      throw new Error(`No se pudo eliminar el ítem: ${delItemError.message}`)
+    }
+
+    const { data: sumRows, error: sumErr } = await supabase
+      .from('items_pedido')
+      .select('subtotal')
+      .eq('pedido_id', itemRow.pedido_id)
+
+    if (sumErr) {
+      throw new Error(`No se pudo recalcular el total: ${sumErr.message}`)
+    }
+
+    const nuevoTotal = (sumRows ?? []).reduce((s, r) => s + Number(r.subtotal ?? 0), 0)
+    const nowIso = new Date().toISOString()
+    const { error: updPedidoError } = await supabase
+      .from('pedidos')
+      .update({ total: nuevoTotal, updated_at: nowIso })
+      .eq('id', itemRow.pedido_id)
+      .eq('tenant_id', params.tenantId)
+
+    if (updPedidoError) {
+      throw new Error(`No se pudo actualizar el total del pedido: ${updPedidoError.message}`)
+    }
+
+    enqueueReprintCocinaTrasEdicionDetalle(itemRow.pedido_id, params.tenantId)
+    void broadcastMesasChanged(params.tenantId, 'eliminarItem')
 
     return { pedidoId: itemRow.pedido_id }
   },

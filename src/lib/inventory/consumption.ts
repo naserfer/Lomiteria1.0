@@ -1,7 +1,7 @@
 'use client'
 
 import { createClient } from '@/lib/supabase/client'
-import { CartItem } from '@/store/cartStore'
+import { CartItem, type ExtraIngredientSelection, type RemovedIngredientInfo } from '@/store/cartStore'
 import { fetchRecipesForProducts } from '@/lib/api/ingredients'
 import type { IngredientConsumption, IngredientRequirement, IngredientUnit } from '@/types/ingredients'
 
@@ -56,6 +56,9 @@ interface ApplyInventoryArgs {
   pedidoId: string
   pedidoNumero: number
   usuarioId: string | null
+  /** Por defecto descuenta stock (salida). `entrada` lo devuelve (p. ej. al eliminar una línea). */
+  modo?: 'salida' | 'entrada'
+  motivoSuffix?: string
 }
 
 const normalizeProductName = (value: string) => value.trim().toLowerCase()
@@ -271,12 +274,18 @@ export async function descontarIngredientesPorPedido({
   items,
   pedidoId,
   pedidoNumero,
-  usuarioId
+  usuarioId,
+  modo = 'salida',
+  motivoSuffix,
 }: ApplyInventoryArgs): Promise<{ success: boolean; errores: string[] }> {
   if (!tenantId || !items.length) return { success: true, errores: [] }
 
   const supabase = createClient()
   const errores: string[] = []
+  const esEntrada = modo === 'entrada'
+  const motivoBase = esEntrada
+    ? `${motivoSuffix ?? 'Devolución'} pedido #${pedidoNumero}`
+    : `Venta pedido #${pedidoNumero}`
 
   try {
     // ── Expandir combos en items individuales para descuento de inventario ──
@@ -509,7 +518,9 @@ export async function descontarIngredientesPorPedido({
         ing,
         cantidadTotal,
         stockAnterior,
-        nuevoStock: Math.max(stockAnterior - cantidadTotal, 0),
+        nuevoStock: esEntrada
+          ? stockAnterior + cantidadTotal
+          : Math.max(stockAnterior - cantidadTotal, 0),
       })
     }
 
@@ -521,13 +532,15 @@ export async function descontarIngredientesPorPedido({
         cantidad: row.cantidadTotal,
         stock_anterior: row.stockAnterior,
         stock_nuevo: row.nuevoStock,
-        motivo: `Venta pedido #${pedidoNumero}`,
+        motivo: motivoBase,
         ...(usuarioId ? { usuario_id: usuarioId } : {}),
       }))
 
-      const { error: rpcError } = await supabase.rpc('aplicar_salidas_ingredientes_pedido', {
-        p_movs: p_movs,
-      })
+      const { error: rpcError } = esEntrada
+        ? { error: { message: 'entrada_no_rpc' } }
+        : await supabase.rpc('aplicar_salidas_ingredientes_pedido', {
+            p_movs: p_movs,
+          })
 
       if (rpcError) {
         console.warn(
@@ -562,11 +575,11 @@ export async function descontarIngredientesPorPedido({
           movimientosBatch.push({
             tenant_id: ing.tenant_id,
             ingrediente_id: ingId,
-            tipo: 'salida',
+            tipo: esEntrada ? 'entrada' : 'salida',
             cantidad: cantidadTotal,
             stock_anterior: stockAnterior,
             stock_nuevo: nuevoStock,
-            motivo: `Venta pedido #${pedidoNumero}`,
+            motivo: motivoBase,
             pedido_id: pedidoId,
             ...(usuarioId ? { usuario_id: usuarioId } : {}),
           })
@@ -580,7 +593,7 @@ export async function descontarIngredientesPorPedido({
     }
 
     // ── 1 INSERT batch para todas las customizaciones ─────────────────────
-    if (customizacionesBatch.length > 0) {
+    if (!esEntrada && customizacionesBatch.length > 0) {
       const { error } = await supabase.from('items_pedido_customizacion').insert(customizacionesBatch)
       if (error) console.error('Error al insertar customizaciones:', error)
     }
@@ -621,14 +634,14 @@ export async function descontarIngredientesPorPedido({
           if (!inv || !inv.controlar_stock) continue
 
           const stockAnterior = Number(inv.stock_actual ?? 0)
-          if (stockAnterior < item.cantidad) {
+          if (!esEntrada && stockAnterior < item.cantidad) {
             errores.push(
               `Stock insuficiente de ${item.nombre}. Disponible: ${stockAnterior}, solicitado: ${item.cantidad}`
             )
             continue
           }
 
-          const stockNuevo = stockAnterior - item.cantidad
+          const stockNuevo = esEntrada ? stockAnterior + item.cantidad : stockAnterior - item.cantidad
           const { error: updateErr } = await supabase
             .from('inventario')
             .update({ stock_actual: stockNuevo, updated_at: new Date().toISOString() })
@@ -644,11 +657,11 @@ export async function descontarIngredientesPorPedido({
             tenant_id: tenantId,
             inventario_id: inv.id,
             pedido_id: pedidoId,
-            tipo: 'salida',
-            cantidad: -item.cantidad,
+            tipo: esEntrada ? 'entrada' : 'salida',
+            cantidad: esEntrada ? item.cantidad : -item.cantidad,
             stock_anterior: stockAnterior,
             stock_nuevo: stockNuevo,
-            motivo: `Venta pedido #${pedidoNumero}`,
+            motivo: motivoBase,
             ...(usuarioId ? { usuario_id: usuarioId } : {})
           })
         }
@@ -666,4 +679,103 @@ export async function descontarIngredientesPorPedido({
     errores.push('Error general al procesar descuento de inventario')
     return { success: false, errores }
   }
+}
+
+export type ItemPedidoCustomizacionRow = {
+  tipo: 'extra' | 'removido' | 'modificado'
+  precio_extra?: number | null
+  cantidad_original?: number | null
+  cantidad_ajustada?: number | null
+  ingredientes?: { slug: string; nombre: string } | Array<{ slug: string; nombre: string }> | null
+}
+
+export type ItemPedidoForRevert = {
+  id: string
+  producto_id: string | null
+  producto_nombre: string
+  cantidad: number
+  precio_unitario: number
+  subtotal: number
+  notas?: string | null
+  items_pedido_customizacion?: ItemPedidoCustomizacionRow[]
+}
+
+/** Convierte una línea persistida en `items_pedido` al formato de carrito para revertir inventario. */
+export function itemPedidoRowToCartItem(row: ItemPedidoForRevert): CartItem {
+  const removedIngredients: RemovedIngredientInfo[] = []
+  const extras: ExtraIngredientSelection[] = []
+
+  for (const c of row.items_pedido_customizacion ?? []) {
+    const ing = Array.isArray(c.ingredientes) ? c.ingredientes[0] : c.ingredientes
+    const slug = ing?.slug?.trim()
+    const label = ing?.nombre?.trim() ?? slug ?? ''
+    if (!slug) continue
+
+    if (c.tipo === 'removido') {
+      removedIngredients.push({ slug, label })
+      continue
+    }
+    if (c.tipo === 'extra') {
+      const orig = Number(c.cantidad_original ?? 0)
+      const adj = Number(c.cantidad_ajustada ?? 0)
+      const quantityPerItem = Math.max(0, adj - orig)
+      if (quantityPerItem <= 0) continue
+      const precioExtra = Math.max(0, Number(c.precio_extra ?? 0))
+      const unitPrice =
+        row.cantidad > 0 ? Math.round(precioExtra / (quantityPerItem * row.cantidad)) : 0
+      extras.push({
+        slug,
+        label,
+        unit: 'unidad',
+        quantityPerItem,
+        unitPrice,
+      })
+    }
+  }
+
+  return {
+    id: row.id,
+    producto_id: row.producto_id,
+    nombre: row.producto_nombre,
+    precio: Number(row.precio_unitario ?? 0),
+    cantidad: Math.max(1, Math.floor(Number(row.cantidad ?? 1))),
+    subtotal: Number(row.subtotal ?? 0),
+    notas: row.notas ?? undefined,
+    tipo: 'producto',
+    customization:
+      removedIngredients.length > 0 || extras.length > 0
+        ? { removedIngredients, extras, resolvedRecipe: [] }
+        : undefined,
+  }
+}
+
+/**
+ * Devuelve stock de ingredientes/inventario al quitar una línea de un pedido confirmado.
+ * Espejo de `descontarIngredientesPorPedido` para un solo ítem (movimientos tipo entrada).
+ */
+export async function revertirIngredientesPorItemPedido({
+  tenantId,
+  item,
+  pedidoId,
+  pedidoNumero,
+  usuarioId,
+}: {
+  tenantId: string
+  item: ItemPedidoForRevert
+  pedidoId: string
+  pedidoNumero: number
+  usuarioId?: string | null
+}): Promise<{ success: boolean; errores: string[] }> {
+  if (!tenantId || !item.producto_id) return { success: true, errores: [] }
+
+  const cartItem = itemPedidoRowToCartItem(item)
+  return descontarIngredientesPorPedido({
+    tenantId,
+    items: [cartItem],
+    pedidoId,
+    pedidoNumero,
+    usuarioId,
+    modo: 'entrada',
+    motivoSuffix: 'quita línea',
+  })
 }

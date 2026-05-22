@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { createClient } from '@/lib/supabase/client'
 import {
+  AlertTriangle,
   CalendarClock,
   CheckCircle2,
   CircleDot,
@@ -56,6 +57,8 @@ export interface DetalleMesaModalProps {
   addingProductoManual?: boolean
   /** Sustituir la línea por otro producto del catálogo (detalle mesa / cuenta para llevar). */
   onReemplazarProductoCatalogo?: (itemPedidoId: string, nuevoProductoId: string) => Promise<void>
+  /** Quitar la línea de la cuenta (antes de cerrar). */
+  onEliminarItem?: (itemPedidoId: string) => Promise<void>
   showOperationalActions?: boolean
   showSplitActions?: boolean
   showCerrarCuenta?: boolean
@@ -140,6 +143,7 @@ export function DetalleMesaModal({
   onAddProductoManual,
   addingProductoManual = false,
   onReemplazarProductoCatalogo,
+  onEliminarItem,
   showOperationalActions = true,
   showSplitActions = true,
   showCerrarCuenta = true,
@@ -164,6 +168,8 @@ export function DetalleMesaModal({
   const [catalogLoading, setCatalogLoading] = useState(false)
   const [catalogSearch, setCatalogSearch] = useState('')
   const [replacingItemId, setReplacingItemId] = useState<string | null>(null)
+  const [deletingItemId, setDeletingItemId] = useState<string | null>(null)
+  const [confirmDeleteItemId, setConfirmDeleteItemId] = useState<string | null>(null)
   const editInputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => { setMounted(true) }, [])
@@ -183,7 +189,35 @@ export function DetalleMesaModal({
     setCatalogProducts([])
     setCatalogSearch('')
     setReplacingItemId(null)
+    setDeletingItemId(null)
+    setConfirmDeleteItemId(null)
   }, [mesa?.id])
+
+  const requestEliminarItem = (itemId: string) => {
+    if (!onEliminarItem || isClosingMesa || deletingItemId) return
+    setConfirmDeleteItemId(itemId)
+    setEditingExtraId(null)
+    setEditingExtraRowKey(null)
+    setEditingItemId(null)
+    setEditingNoteItemId(null)
+    setPickProductItemId(null)
+  }
+
+  const cancelEliminarItem = () => {
+    if (deletingItemId) return
+    setConfirmDeleteItemId(null)
+  }
+
+  const confirmEliminarItem = async (item: { id: string; cantidad: number; producto_nombre: string }) => {
+    if (!onEliminarItem) return
+    setDeletingItemId(item.id)
+    setConfirmDeleteItemId(null)
+    try {
+      await onEliminarItem(item.id)
+    } finally {
+      setDeletingItemId(null)
+    }
+  }
 
   // Auto-dismiss del banner realtime tras 6s.
   useEffect(() => {
@@ -578,8 +612,11 @@ export function DetalleMesaModal({
                             0
                           )
                           const subtotalSinNota = Math.max(0, Number(item.subtotal) - noteRecargoForPrice)
+                          const isConfirmingDelete = confirmDeleteItemId === item.id
+                          const itemLabel = `${item.cantidad}x ${item.producto_nombre}`.trim()
                           return (
-                          <div key={item.id} className="flex items-baseline justify-between gap-1.5 py-0.5">
+                          <div key={item.id} className="space-y-1 py-0.5">
+                          <div className={`flex items-baseline justify-between gap-1.5 ${isConfirmingDelete ? 'opacity-60' : ''}`}>
                             <span className="text-sm text-gray-700 dark:text-gray-300 flex-1 min-w-0">
                               {(() => {
                                 return (
@@ -777,7 +814,29 @@ export function DetalleMesaModal({
                                 )
                               })()}
                             </span>
-                            <span className="shrink-0 flex items-center justify-end pl-2">
+                            <span className="shrink-0 flex items-center justify-end gap-1 pl-2">
+                              {onEliminarItem && !isConfirmingDelete && (
+                                <button
+                                  type="button"
+                                  className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300 dark:hover:bg-red-900/50 disabled:opacity-50"
+                                  disabled={
+                                    Boolean(deletingItemId) ||
+                                    Boolean(confirmDeleteItemId) ||
+                                    isClosingMesa ||
+                                    Boolean(replacingItemId) ||
+                                    Boolean(pickProductItemId) ||
+                                    editingItemId === item.id ||
+                                    editingNoteItemId === item.id
+                                  }
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    requestEliminarItem(item.id)
+                                  }}
+                                  aria-label="Quitar producto"
+                                >
+                                  <X className="h-4 w-4" />
+                                </button>
+                              )}
                               {editingItemId === item.id ? (
                                 <span className="inline-flex items-center justify-end gap-2">
                                   <input
@@ -826,6 +885,49 @@ export function DetalleMesaModal({
                                 </button>
                               )}
                             </span>
+                          </div>
+                          {isConfirmingDelete && onEliminarItem && (
+                            <div className="rounded-lg border border-red-200 bg-red-50/90 px-2.5 py-2 dark:border-red-900/60 dark:bg-red-950/30">
+                              <p className="text-xs font-semibold text-red-800 dark:text-red-200 flex items-center gap-1.5">
+                                <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                                ¿Quitar {itemLabel} de la cuenta?
+                              </p>
+                              <p className="mt-0.5 text-[11px] text-red-600/90 dark:text-red-400/90">
+                                Se actualiza el total y la cocina puede recibir un ticket actualizado.
+                              </p>
+                              <div className="mt-2 grid grid-cols-2 gap-2">
+                                <button
+                                  type="button"
+                                  disabled={deletingItemId === item.id}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    void confirmEliminarItem(item)
+                                  }}
+                                  className="rounded-lg bg-red-600 px-2 py-1.5 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-60 inline-flex items-center justify-center gap-1"
+                                >
+                                  {deletingItemId === item.id ? (
+                                    <>
+                                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                      Quitando…
+                                    </>
+                                  ) : (
+                                    'Sí, quitar'
+                                  )}
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={deletingItemId === item.id}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    cancelEliminarItem()
+                                  }}
+                                  className="rounded-lg border border-red-200 px-2 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-900/30 disabled:opacity-50"
+                                >
+                                  Cancelar
+                                </button>
+                              </div>
+                            </div>
+                          )}
                           </div>
                           )
                         })}
