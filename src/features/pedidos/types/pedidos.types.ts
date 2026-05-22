@@ -10,6 +10,7 @@ export interface HistorialPedidosFilters {
 export interface PedidoParaHistorial {
   id: string
   numero_pedido: number
+  pedido_ciclo: number
   tenant_id: string
   cliente_id: string | null
   usuario_id: string | null

@@ -248,7 +248,7 @@ export async function createTenant(data: CreateTenantData) {
   // Inicializar contador de pedidos
   await supabase
     .from('tenant_pedido_counters')
-    .insert({ tenant_id: tenant.id, ultimo_numero: 0 })
+    .insert({ tenant_id: tenant.id, ultimo_numero: 0, ciclo_actual: 1 })
 
   const printerConfigResult = await createDefaultPrinterConfig(tenant.id, slug)
   if (printerConfigResult.error) {

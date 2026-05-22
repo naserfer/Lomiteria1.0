@@ -135,6 +135,7 @@ export interface Database {
           id: string
           tenant_id: string
           numero_pedido: number
+          pedido_ciclo: number
           cliente_id: string | null
           usuario_id: string | null
           tipo: 'local' | 'delivery' | 'para_llevar'
@@ -152,6 +153,7 @@ export interface Database {
           id?: string
           tenant_id: string
           numero_pedido?: number
+          pedido_ciclo?: number
           cliente_id?: string | null
           usuario_id?: string | null
           tipo: 'local' | 'delivery' | 'para_llevar'
@@ -169,6 +171,7 @@ export interface Database {
           id?: string
           tenant_id?: string
           numero_pedido?: number
+          pedido_ciclo?: number
           cliente_id?: string | null
           usuario_id?: string | null
           tipo?: 'local' | 'delivery' | 'para_llevar'

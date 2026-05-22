@@ -138,7 +138,9 @@
 
 ### **Numeración de Pedidos**
 - Tabla `tenant_pedido_counters` guarda el último número de cada tenant
-- Trigger `trigger_asignar_numero_pedido` asegura correlativos sin colisiones
+- Trigger `trigger_asignar_numero_pedido` asigna numeración cíclica
+- Regla vigente: `numero_pedido` se mantiene en `1..999` y al llegar a `999` reinicia en `1`
+- Para evitar colisiones históricas, se usa `pedido_ciclo` y unicidad compuesta `(tenant_id, pedido_ciclo, numero_pedido)`
 - No es necesario enviar `numero_pedido` desde el front-end
 
 ### **Pedidos Instantáneos**
@@ -165,6 +167,7 @@
 | 00 | `00_initial_schema.sql` | 2024-11-24 | Schema base multi-tenant v1.1 (Ultra Profesional) | ✅ Listo |
 | 02 | `02_printer_config.sql` | 2024-12-XX | Tabla de configuración de impresoras | ✅ Listo |
 | 01 | `01_migration_escalabilidad.sql` | 2024-11-24 | RLS completo y optimizaciones adicionales | ⏸️ Opcional |
+| 31 | `31_pedidos_numero_ciclo.sql` | 2026-05-19 | Numeración cíclica 1..999 con `pedido_ciclo` para evitar colisiones históricas | ✅ Listo |
 
 ### **Changelog v1.1 (Mejoras Ultra Profesionales)**
 

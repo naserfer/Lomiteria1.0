@@ -29,6 +29,7 @@ export const pedidosService = {
         `
         id,
         numero_pedido,
+        pedido_ciclo,
         tenant_id,
         cliente_id,
         usuario_id,
@@ -92,6 +93,7 @@ export const pedidosService = {
       return {
         id: row.id as string,
         numero_pedido: row.numero_pedido as number,
+        pedido_ciclo: Number(row.pedido_ciclo ?? 1),
         tenant_id: row.tenant_id as string,
         cliente_id: row.cliente_id as string | null,
         usuario_id: row.usuario_id as string | null,
