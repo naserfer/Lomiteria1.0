@@ -8,6 +8,7 @@ import {
   clienteTieneRucParaFactura,
 } from '@/features/pos/utils/pos.utils'
 import { broadcastMesasChanged } from './mesasRealtimeBroadcast'
+import { TIPOS_EVENTO_VINCULO_PEDIDO_MESA } from './sesionMesa'
 import {
   esErrorNumeroFacturaDuplicado,
   maxSecuenciaNumericaEnFacturas,
@@ -123,8 +124,31 @@ export const cerrarCuentaMesaService = {
     let pedidoError: { message: string } | null = null
 
     if (ultimoEventoLiberar?.created_at) {
-      const { data, error } = await pedidosBaseQuery
+      // Pedidos vinculados a la mesa después del corte (p. ej. movidos desde otra mesa):
+      // conservan su created_at original, así que no pasan el filtro por fecha.
+      // Mismo criterio que getResumenPedidosMesas (ver sesionMesa.ts).
+      const { data: eventosVinculo, error: eventosVinculoError } = await supabase
+        .from('mesa_eventos')
+        .select('pedido_id')
+        .eq('tenant_id', params.tenantId)
+        .eq('mesa_id', params.mesaId)
+        .in('tipo', TIPOS_EVENTO_VINCULO_PEDIDO_MESA)
+        .not('pedido_id', 'is', null)
         .gte('created_at', ultimoEventoLiberar.created_at)
+      if (eventosVinculoError) {
+        throw new Error(`No se pudo obtener pedidos vinculados a la mesa: ${eventosVinculoError.message}`)
+      }
+      const pedidosVinculadosIds = Array.from(
+        new Set((eventosVinculo ?? []).map((ev) => ev.pedido_id).filter((id): id is string => Boolean(id)))
+      )
+
+      const filtroSesion =
+        pedidosVinculadosIds.length > 0
+          ? `created_at.gte.${ultimoEventoLiberar.created_at},id.in.(${pedidosVinculadosIds.join(',')})`
+          : `created_at.gte.${ultimoEventoLiberar.created_at}`
+
+      const { data, error } = await pedidosBaseQuery
+        .or(filtroSesion)
         .order('created_at', { ascending: true })
       pedidosActivos = data
       pedidoError = error

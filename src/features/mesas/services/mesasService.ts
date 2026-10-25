@@ -2,6 +2,14 @@ import { createClient } from '@/lib/supabase/client'
 import { requestAgentPrint } from '@/features/impresion/agentPrintClient'
 import { revertirIngredientesPorItemPedido, type ItemPedidoForRevert } from '@/lib/inventory/consumption'
 import { broadcastMesasChanged, broadcastReservasChanged } from './mesasRealtimeBroadcast'
+import {
+  TIPOS_EVENTO_VINCULO_PEDIDO_MESA,
+  compararFechasIso,
+  construirFiltroSesionPedidos,
+  construirSesionesMesa,
+  pedidoPerteneceASesion,
+  type EventoSesionMesa,
+} from './sesionMesa'
 import type { EstadoMesa, Mesa, MesaReserva, MesaUnion, MesaUnionItem, PedidoDivision, ResumenMesa } from '../types/mesas.types'
 
 const MESAS_SELECT = 'id, tenant_id, numero, nombre, capacidad, estado, activa, orden, created_at, updated_at'
@@ -904,30 +912,75 @@ export const mesasService = {
     const supabase = createClient()
     const mesaIds = mesas.map((m) => m.id)
 
-    // Cortar por sesión real: último liberar_mesa por cada mesa.
+    // Sesión real por mesa: corte = último liberar_mesa. Los pedidos movidos desde
+    // otra mesa conservan su created_at original (puede ser anterior al corte de la
+    // mesa destino), por eso también se consideran los eventos ocupar_mesa/mover_pedido
+    // con pedido_id posteriores al corte. Ver `sesionMesa.ts`.
     // Si la mesa nunca fue liberada NO se aplica cutoff: no hay sesión anterior que descartar.
-    // Antes había un fallback a mesa.updated_at, pero ese campo lo mueve cualquier UPDATE
-    // (editar nombre/capacidad, ocupar_mesa, setEstadoMesa, etc.) y terminaba ocultando pedidos
-    // legítimos cuando mesa.updated_at quedaba > pedido.created_at.
-    const { data: eventosLiberar, error: eventosLiberarError } = await supabase
+    // (No se usa mesa.updated_at: lo mueve cualquier UPDATE y ocultaba pedidos legítimos.)
+    // PostgREST recorta a max-rows (1000): orden desc + límite, y si el lote vino
+    // lleno se busca el último liberar_mesa por mesa faltante de forma individual.
+    const LIMITE_EVENTOS_LIBERAR = 1000
+    const { data: eventosLiberarLote, error: eventosLiberarError } = await supabase
       .from('mesa_eventos')
-      .select('mesa_id, created_at')
+      .select('mesa_id, pedido_id, tipo, created_at')
       .eq('tenant_id', tenantId)
       .in('mesa_id', mesaIds)
       .eq('tipo', 'liberar_mesa')
       .order('created_at', { ascending: false })
+      .limit(LIMITE_EVENTOS_LIBERAR)
 
     if (eventosLiberarError) throw eventosLiberarError
 
-    const cutoffBySesion: Record<string, string> = {}
-    for (const ev of eventosLiberar ?? []) {
-      if (!ev?.mesa_id || !ev?.created_at) continue
-      if (!cutoffBySesion[ev.mesa_id]) {
-        cutoffBySesion[ev.mesa_id] = ev.created_at
-      }
+    const eventosLiberar: EventoSesionMesa[] = [...((eventosLiberarLote ?? []) as EventoSesionMesa[])]
+    if (eventosLiberar.length >= LIMITE_EVENTOS_LIBERAR) {
+      const mesasConLiberar = new Set(eventosLiberar.map((ev) => ev.mesa_id))
+      const faltantes = mesaIds.filter((id) => !mesasConLiberar.has(id))
+      const extras = await Promise.all(
+        faltantes.map(async (mesaId) => {
+          const { data, error } = await supabase
+            .from('mesa_eventos')
+            .select('mesa_id, pedido_id, tipo, created_at')
+            .eq('tenant_id', tenantId)
+            .eq('mesa_id', mesaId)
+            .eq('tipo', 'liberar_mesa')
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle()
+          if (error) throw error
+          return data as EventoSesionMesa | null
+        })
+      )
+      for (const ev of extras) if (ev) eventosLiberar.push(ev)
     }
 
-    const { data, error } = await supabase
+    // Vinculaciones posteriores al corte más antiguo (acotado a la sesión vigente).
+    const cutoffs = eventosLiberar.map((ev) => ev.created_at).filter(Boolean)
+    let eventosVinculo: EventoSesionMesa[] = []
+    if (cutoffs.length > 0) {
+      const cutoffMasAntiguo = cutoffs.reduce((min, c) => (compararFechasIso(c, min) < 0 ? c : min))
+      const { data, error: eventosVinculoError } = await supabase
+        .from('mesa_eventos')
+        .select('mesa_id, pedido_id, tipo, created_at')
+        .eq('tenant_id', tenantId)
+        .in('mesa_id', mesaIds)
+        .in('tipo', TIPOS_EVENTO_VINCULO_PEDIDO_MESA)
+        .not('pedido_id', 'is', null)
+        .gte('created_at', cutoffMasAntiguo)
+        .order('created_at', { ascending: false })
+      if (eventosVinculoError) throw eventosVinculoError
+      eventosVinculo = (data ?? []) as EventoSesionMesa[]
+    }
+
+    const sesiones = construirSesionesMesa([...eventosLiberar, ...eventosVinculo])
+
+    // Filtro de sesión TAMBIÉN en el servidor: la respuesta de PostgREST se recorta a
+    // max-rows (1000) y, ordenando por created_at asc, con cientos de pedidos FACT
+    // históricos por mesa quedaban afuera justamente los pedidos de la sesión actual
+    // (la mesa ocupada aparecía "sin pedido registrado").
+    const filtroSesion = construirFiltroSesionPedidos(mesaIds, sesiones)
+
+    const pedidosQuery = supabase
       .from('pedidos')
       .select(`
         id,
@@ -959,6 +1012,8 @@ export const mesasService = {
       .in('mesa_id', mesaIds)
       .in('estado_pedido', ['EDIT', 'FACT'])
       .neq('estado', 'cancelado')
+
+    const { data, error } = await (filtroSesion ? pedidosQuery.or(filtroSesion) : pedidosQuery)
       .order('created_at', { ascending: true })
 
     if (error) throw error
@@ -967,10 +1022,8 @@ export const mesasService = {
     const byMesa = new Map<string, ResumenMesa>()
     for (const p of (data ?? [])) {
       const mesaId = p.mesa_id as string
-      const cutoff = cutoffBySesion[mesaId]
-      // Excluir pedidos de sesiones anteriores. Estricto (<) para no descartar pedidos
-      // creados en el mismo instante que el liberar_mesa por colisiones de microsegundos.
-      if (cutoff && p.created_at < cutoff) continue
+      // Excluir pedidos de sesiones anteriores (respetando pedidos movidos a esta mesa).
+      if (!pedidoPerteneceASesion({ id: p.id, mesa_id: mesaId, created_at: p.created_at }, sesiones)) continue
 
       if (!byMesa.has(mesaId)) {
         byMesa.set(mesaId, { mesa_id: mesaId, pedidos: [], total_items: 0, total_acumulado: 0 })
