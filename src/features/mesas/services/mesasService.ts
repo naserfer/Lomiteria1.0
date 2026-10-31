@@ -1,6 +1,15 @@
 import { createClient } from '@/lib/supabase/client'
 import { requestAgentPrint } from '@/features/impresion/agentPrintClient'
+import { revertirIngredientesPorItemPedido, type ItemPedidoForRevert } from '@/lib/inventory/consumption'
 import { broadcastMesasChanged, broadcastReservasChanged } from './mesasRealtimeBroadcast'
+import {
+  TIPOS_EVENTO_VINCULO_PEDIDO_MESA,
+  compararFechasIso,
+  construirFiltroSesionPedidos,
+  construirSesionesMesa,
+  pedidoPerteneceASesion,
+  type EventoSesionMesa,
+} from './sesionMesa'
 import type { EstadoMesa, Mesa, MesaReserva, MesaUnion, MesaUnionItem, PedidoDivision, ResumenMesa } from '../types/mesas.types'
 
 const MESAS_SELECT = 'id, tenant_id, numero, nombre, capacidad, estado, activa, orden, created_at, updated_at'
@@ -903,30 +912,75 @@ export const mesasService = {
     const supabase = createClient()
     const mesaIds = mesas.map((m) => m.id)
 
-    // Cortar por sesión real: último liberar_mesa por cada mesa.
+    // Sesión real por mesa: corte = último liberar_mesa. Los pedidos movidos desde
+    // otra mesa conservan su created_at original (puede ser anterior al corte de la
+    // mesa destino), por eso también se consideran los eventos ocupar_mesa/mover_pedido
+    // con pedido_id posteriores al corte. Ver `sesionMesa.ts`.
     // Si la mesa nunca fue liberada NO se aplica cutoff: no hay sesión anterior que descartar.
-    // Antes había un fallback a mesa.updated_at, pero ese campo lo mueve cualquier UPDATE
-    // (editar nombre/capacidad, ocupar_mesa, setEstadoMesa, etc.) y terminaba ocultando pedidos
-    // legítimos cuando mesa.updated_at quedaba > pedido.created_at.
-    const { data: eventosLiberar, error: eventosLiberarError } = await supabase
+    // (No se usa mesa.updated_at: lo mueve cualquier UPDATE y ocultaba pedidos legítimos.)
+    // PostgREST recorta a max-rows (1000): orden desc + límite, y si el lote vino
+    // lleno se busca el último liberar_mesa por mesa faltante de forma individual.
+    const LIMITE_EVENTOS_LIBERAR = 1000
+    const { data: eventosLiberarLote, error: eventosLiberarError } = await supabase
       .from('mesa_eventos')
-      .select('mesa_id, created_at')
+      .select('mesa_id, pedido_id, tipo, created_at')
       .eq('tenant_id', tenantId)
       .in('mesa_id', mesaIds)
       .eq('tipo', 'liberar_mesa')
       .order('created_at', { ascending: false })
+      .limit(LIMITE_EVENTOS_LIBERAR)
 
     if (eventosLiberarError) throw eventosLiberarError
 
-    const cutoffBySesion: Record<string, string> = {}
-    for (const ev of eventosLiberar ?? []) {
-      if (!ev?.mesa_id || !ev?.created_at) continue
-      if (!cutoffBySesion[ev.mesa_id]) {
-        cutoffBySesion[ev.mesa_id] = ev.created_at
-      }
+    const eventosLiberar: EventoSesionMesa[] = [...((eventosLiberarLote ?? []) as EventoSesionMesa[])]
+    if (eventosLiberar.length >= LIMITE_EVENTOS_LIBERAR) {
+      const mesasConLiberar = new Set(eventosLiberar.map((ev) => ev.mesa_id))
+      const faltantes = mesaIds.filter((id) => !mesasConLiberar.has(id))
+      const extras = await Promise.all(
+        faltantes.map(async (mesaId) => {
+          const { data, error } = await supabase
+            .from('mesa_eventos')
+            .select('mesa_id, pedido_id, tipo, created_at')
+            .eq('tenant_id', tenantId)
+            .eq('mesa_id', mesaId)
+            .eq('tipo', 'liberar_mesa')
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle()
+          if (error) throw error
+          return data as EventoSesionMesa | null
+        })
+      )
+      for (const ev of extras) if (ev) eventosLiberar.push(ev)
     }
 
-    const { data, error } = await supabase
+    // Vinculaciones posteriores al corte más antiguo (acotado a la sesión vigente).
+    const cutoffs = eventosLiberar.map((ev) => ev.created_at).filter(Boolean)
+    let eventosVinculo: EventoSesionMesa[] = []
+    if (cutoffs.length > 0) {
+      const cutoffMasAntiguo = cutoffs.reduce((min, c) => (compararFechasIso(c, min) < 0 ? c : min))
+      const { data, error: eventosVinculoError } = await supabase
+        .from('mesa_eventos')
+        .select('mesa_id, pedido_id, tipo, created_at')
+        .eq('tenant_id', tenantId)
+        .in('mesa_id', mesaIds)
+        .in('tipo', TIPOS_EVENTO_VINCULO_PEDIDO_MESA)
+        .not('pedido_id', 'is', null)
+        .gte('created_at', cutoffMasAntiguo)
+        .order('created_at', { ascending: false })
+      if (eventosVinculoError) throw eventosVinculoError
+      eventosVinculo = (data ?? []) as EventoSesionMesa[]
+    }
+
+    const sesiones = construirSesionesMesa([...eventosLiberar, ...eventosVinculo])
+
+    // Filtro de sesión TAMBIÉN en el servidor: la respuesta de PostgREST se recorta a
+    // max-rows (1000) y, ordenando por created_at asc, con cientos de pedidos FACT
+    // históricos por mesa quedaban afuera justamente los pedidos de la sesión actual
+    // (la mesa ocupada aparecía "sin pedido registrado").
+    const filtroSesion = construirFiltroSesionPedidos(mesaIds, sesiones)
+
+    const pedidosQuery = supabase
       .from('pedidos')
       .select(`
         id,
@@ -958,6 +1012,8 @@ export const mesasService = {
       .in('mesa_id', mesaIds)
       .in('estado_pedido', ['EDIT', 'FACT'])
       .neq('estado', 'cancelado')
+
+    const { data, error } = await (filtroSesion ? pedidosQuery.or(filtroSesion) : pedidosQuery)
       .order('created_at', { ascending: true })
 
     if (error) throw error
@@ -966,10 +1022,8 @@ export const mesasService = {
     const byMesa = new Map<string, ResumenMesa>()
     for (const p of (data ?? [])) {
       const mesaId = p.mesa_id as string
-      const cutoff = cutoffBySesion[mesaId]
-      // Excluir pedidos de sesiones anteriores. Estricto (<) para no descartar pedidos
-      // creados en el mismo instante que el liberar_mesa por colisiones de microsegundos.
-      if (cutoff && p.created_at < cutoff) continue
+      // Excluir pedidos de sesiones anteriores (respetando pedidos movidos a esta mesa).
+      if (!pedidoPerteneceASesion({ id: p.id, mesa_id: mesaId, created_at: p.created_at }, sesiones)) continue
 
       if (!byMesa.has(mesaId)) {
         byMesa.set(mesaId, { mesa_id: mesaId, pedidos: [], total_items: 0, total_acumulado: 0 })
@@ -1327,6 +1381,149 @@ export const mesasService = {
     }
 
     enqueueReprintCocinaTrasEdicionDetalle(itemRow.pedido_id, params.tenantId)
+
+    return { pedidoId: itemRow.pedido_id }
+  },
+
+  /**
+   * Elimina una línea del pedido (detalle antes de cerrar cuenta).
+   * Revierte inventario de esa línea, recalcula total y encola reimpresión cocina.
+   */
+  async eliminarItemPedido(params: {
+    tenantId: string
+    itemPedidoId: string
+    usuarioId?: string | null
+  }): Promise<{ pedidoId: string }> {
+    const supabase = createClient()
+
+    const { data: itemRow, error: itemError } = await supabase
+      .from('items_pedido')
+      .select(`
+        id,
+        pedido_id,
+        producto_id,
+        producto_nombre,
+        cantidad,
+        precio_unitario,
+        subtotal,
+        notas,
+        pedidos!inner (
+          id,
+          tenant_id,
+          numero_pedido,
+          total,
+          estado,
+          estado_pedido,
+          mesa_id
+        ),
+        items_pedido_customizacion (
+          tipo,
+          precio_extra,
+          cantidad_original,
+          cantidad_ajustada,
+          ingredientes:ingrediente_id (
+            slug,
+            nombre
+          )
+        )
+      `)
+      .eq('id', params.itemPedidoId)
+      .eq('pedidos.tenant_id', params.tenantId)
+      .single()
+
+    if (itemError || !itemRow) {
+      throw new Error('No se encontró el ítem del pedido o no pertenece a este local.')
+    }
+
+    const pedido = Array.isArray(itemRow.pedidos) ? itemRow.pedidos[0] : itemRow.pedidos
+    if (!pedido) throw new Error('No se pudo validar el pedido del ítem.')
+    if (pedido.estado === 'cancelado') throw new Error('No se puede editar un pedido cancelado.')
+    if (!['EDIT', 'FACT'].includes(pedido.estado_pedido)) {
+      throw new Error('Solo se pueden editar pedidos abiertos o confirmados.')
+    }
+
+    if (itemRow.producto_id) {
+      const { data: comboProbe, error: comboErr } = await supabase
+        .from('combo_items')
+        .select('id')
+        .eq('combo_id', itemRow.producto_id)
+        .limit(1)
+
+      if (comboErr) {
+        throw new Error(`No se pudo validar el producto: ${comboErr.message}`)
+      }
+      if (comboProbe && comboProbe.length > 0) {
+        throw new Error(
+          'Los combos no se pueden quitar desde el detalle de cuenta. Usá el punto de venta.'
+        )
+      }
+    }
+
+    const itemForRevert: ItemPedidoForRevert = {
+      id: itemRow.id,
+      producto_id: itemRow.producto_id,
+      producto_nombre: itemRow.producto_nombre,
+      cantidad: itemRow.cantidad,
+      precio_unitario: itemRow.precio_unitario,
+      subtotal: itemRow.subtotal,
+      notas: itemRow.notas,
+      items_pedido_customizacion: (itemRow.items_pedido_customizacion ?? []) as ItemPedidoForRevert['items_pedido_customizacion'],
+    }
+
+    const invResult = await revertirIngredientesPorItemPedido({
+      tenantId: params.tenantId,
+      item: itemForRevert,
+      pedidoId: itemRow.pedido_id,
+      pedidoNumero: pedido.numero_pedido,
+      usuarioId: params.usuarioId ?? null,
+    })
+    if (!invResult.success) {
+      throw new Error(
+        invResult.errores[0] ?? 'No se pudo revertir el inventario de esta línea.'
+      )
+    }
+
+    const { error: delCustError } = await supabase
+      .from('items_pedido_customizacion')
+      .delete()
+      .eq('item_pedido_id', params.itemPedidoId)
+
+    if (delCustError) {
+      throw new Error(`No se pudieron quitar modificaciones del ítem: ${delCustError.message}`)
+    }
+
+    const { error: delItemError } = await supabase
+      .from('items_pedido')
+      .delete()
+      .eq('id', params.itemPedidoId)
+
+    if (delItemError) {
+      throw new Error(`No se pudo eliminar el ítem: ${delItemError.message}`)
+    }
+
+    const { data: sumRows, error: sumErr } = await supabase
+      .from('items_pedido')
+      .select('subtotal')
+      .eq('pedido_id', itemRow.pedido_id)
+
+    if (sumErr) {
+      throw new Error(`No se pudo recalcular el total: ${sumErr.message}`)
+    }
+
+    const nuevoTotal = (sumRows ?? []).reduce((s, r) => s + Number(r.subtotal ?? 0), 0)
+    const nowIso = new Date().toISOString()
+    const { error: updPedidoError } = await supabase
+      .from('pedidos')
+      .update({ total: nuevoTotal, updated_at: nowIso })
+      .eq('id', itemRow.pedido_id)
+      .eq('tenant_id', params.tenantId)
+
+    if (updPedidoError) {
+      throw new Error(`No se pudo actualizar el total del pedido: ${updPedidoError.message}`)
+    }
+
+    enqueueReprintCocinaTrasEdicionDetalle(itemRow.pedido_id, params.tenantId)
+    void broadcastMesasChanged(params.tenantId, 'eliminarItem')
 
     return { pedidoId: itemRow.pedido_id }
   },

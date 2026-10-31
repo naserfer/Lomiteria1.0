@@ -96,6 +96,19 @@ export const cerrarCuentaParaLlevarService = {
       throw new Error('El pedido debe estar en estado FACT para cerrar la cuenta.')
     }
 
+    const { data: itemsPedido, error: itemsPedidoError } = await supabase
+      .from('items_pedido')
+      .select('id')
+      .eq('pedido_id', pedidoPrincipal.id)
+      .limit(1)
+
+    if (itemsPedidoError) {
+      throw new Error(`No se pudo validar ítems del pedido: ${itemsPedidoError.message}`)
+    }
+    if (!itemsPedido?.length) {
+      throw new Error('No hay productos en la cuenta para cerrar. Agregá ítems antes de cobrar.')
+    }
+
     const { data: config, error: configError } = await supabase
       .from('tenant_facturacion')
       .select('timbrado, establecimiento, punto_expedicion, ultimo_numero')
